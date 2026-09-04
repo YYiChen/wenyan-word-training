@@ -1,25 +1,16 @@
-# Private question-bank data and review records
-data/**
-!data/.gitkeep
-
-# Question-bank source and generation material
-tools/*question_bank*.py
-tools/expand_question_bank.py
-
 # Python cache
 __pycache__/
 *.py[cod]
 
-# Runtime and local settings
-*.log
-.env
-.env.*
+# Runtime data that changes during normal classroom use
+data/leaderboard.json
+data/backups/
 
 # PyInstaller build products and local release staging folders
 build/
-build-v*/
 release-build/
 release-build-v*/
+build-v*/
 
 # Generated distribution archives
 release/

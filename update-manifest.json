@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "version": "1.3.0",
+  "files": [
+    ".gitignore",
+    "README.md",
+    "admin.css",
+    "admin.html",
+    "admin.js",
+    "app.js",
+    "index.html",
+    "scoring.js",
+    "style.css",
+    "tools/run_server.py",
+    "tools/update_helper.py",
+    "tools/update_service.py",
+    "version.json",
+    "免Python版使用说明.txt",
+    "关闭文言实词训练.bat",
+    "启动文言实词训练.bat"
+  ]
+}
