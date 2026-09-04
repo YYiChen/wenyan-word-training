@@ -1,0 +1,26 @@
+# Private question-bank data and review records
+data/**
+!data/.gitkeep
+
+# Question-bank source and generation material
+tools/*question_bank*.py
+tools/expand_question_bank.py
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Runtime and local settings
+*.log
+.env
+.env.*
+
+# PyInstaller build products and local release staging folders
+build/
+build-v*/
+release-build/
+release-build-v*/
+
+# Generated distribution archives
+release/
+*.zip
