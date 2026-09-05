@@ -75,4 +75,3 @@ const shuffle = (items) => {
   }
   return result;
 };
-

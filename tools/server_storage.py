@@ -64,4 +64,3 @@ def prune_backups(path: Path, backup_dir: Path) -> None:
         # A backup cleanup failure must not make the newly written data look
         # like it failed to save.
         return
-

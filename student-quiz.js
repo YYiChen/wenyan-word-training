@@ -1033,4 +1033,3 @@ const finishGame = (reason = "timeout") => {
     if (state === session && session.screen === "result") renderResult(session);
   });
 };
-

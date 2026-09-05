@@ -1008,5 +1008,5 @@ const wireQuestionEvents = () => {
         window.alert(error instanceof Error ? error.message : "删除题目失败。");
       }
     });
-    
+
 };

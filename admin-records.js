@@ -249,7 +249,7 @@ const wireRecordEvents = () => {
         recordFileInput.value = "";
       }
     });
-    
+
 };
 
 const wireLeaderboardEvents = () => {

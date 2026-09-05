@@ -439,4 +439,3 @@ const renderAnswerRecordDetail = (recordId) => {
   app.querySelector('[data-action="records"]').addEventListener("click", renderAnswerRecords);
   app.querySelector('[data-action="home"]').addEventListener("click", renderStart);
 };
-
