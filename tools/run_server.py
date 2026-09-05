@@ -36,7 +36,7 @@ from update_service import UpdateManager
 
 
 APP_NAME = "wenyan-word-training"
-APP_VERSION = "1.4.5"
+APP_VERSION = "1.4.6"
 
 
 # 开发时，网页与题库数据都在项目根目录；封装后，网页资源在 PyInstaller
@@ -1502,6 +1502,11 @@ def load_answer_records(persist_pruned: bool = False) -> list[dict[str, Any]]:
     return retained
 
 
+def filter_student_answer_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Expose only currently visible records to the student read-only API."""
+    return [record for record in records if not record.get("archived", False)]
+
+
 def ensure_answer_records() -> None:
     if not ANSWER_RECORDS_PATH.exists():
         return
@@ -1602,6 +1607,12 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
                 self.send_json(payload, extra_headers={"ETag": make_json_etag(payload)})
             except (OSError, json.JSONDecodeError, ValueError) as error:
                 self.send_api_error(f"读取排行榜失败：{error}", HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+        if route == "/api/student-answer-records":
+            try:
+                self.send_json(filter_student_answer_records(load_answer_records()))
+            except (OSError, json.JSONDecodeError, ValueError) as error:
+                self.send_api_error(f"读取答题记录失败：{error}", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
         if route == "/api/answer-records":
             if not self.require_admin():

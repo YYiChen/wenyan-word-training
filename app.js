@@ -32,8 +32,12 @@ let timerId = null;
 let state = null;
 let startSelection = { volumes: ["all"], articleIds: ["all"] };
 let leaderboard = [];
+let answerRecords = [];
 let feedbackEffectsController = null;
 let feedbackEffectPlayedKey = "";
+let gameStarting = false;
+let feedbackTransitionTimerId = null;
+let feedbackTransitionSequence = 0;
 
 const escapeHtml = (value) => String(value ?? "")
   .replaceAll("&", "&amp;")
@@ -120,6 +124,53 @@ const loadLeaderboard = async () => {
   leaderboard = normalizeLeaderboard(result);
 };
 
+const normalizeAnswerRecords = (entries) => (Array.isArray(entries) ? entries : [])
+  .filter((record) => record && typeof record.id === "string" && Array.isArray(record.questions))
+  .map((record) => ({
+    id: record.id,
+    name: String(record.name || "未命名").trim().slice(0, 20) || "未命名",
+    score: Number(record.score) || 0,
+    startedAt: Number(record.startedAt) || 0,
+    finishedAt: Number(record.finishedAt) || 0,
+    usedSeconds: Math.max(0, Number(record.usedSeconds) || 0),
+    completedAll: Boolean(record.completedAll),
+    answeredCount: Math.max(0, Number(record.answeredCount) || 0),
+    correctCount: Math.max(0, Number(record.correctCount) || 0),
+    wrongCount: Math.max(0, Number(record.wrongCount) || 0),
+    archived: Boolean(record.archived),
+    archivedAt: Math.max(0, Number(record.archivedAt) || 0),
+    scoring: record.scoring ? normalizeScoringConfig(record.scoring) : null,
+    context: record.context && typeof record.context === "object" ? record.context : null,
+    questions: record.questions,
+  }))
+  .sort((left, right) => {
+    const leftTime = left.finishedAt || left.startedAt;
+    const rightTime = right.finishedAt || right.startedAt;
+    return rightTime - leftTime;
+  });
+
+const formatRecordDate = (timestamp) => {
+  if (!timestamp) return "时间未知";
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(timestamp));
+};
+
+const loadStudentAnswerRecords = async () => {
+  const response = await fetch("./api/student-answer-records", { cache: "no-store" });
+  const result = await response.json().catch(() => null);
+  if (!response.ok || !Array.isArray(result)) {
+    throw new Error("答题记录文件读取失败。");
+  }
+  answerRecords = normalizeAnswerRecords(result).filter((record) => !record.archived);
+};
+
+const getAnswerRecord = (recordId) => answerRecords.find((record) => record.id === recordId) || null;
+
 const createAnswerRecordId = () => `record-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
 const clearQuizRecovery = () => {
@@ -150,7 +201,13 @@ const readQuizRecovery = () => {
       clearQuizRecovery();
       return null;
     }
+    snapshot.sessionId = String(snapshot.sessionId || snapshot.recordId || createAnswerRecordId());
     snapshot.recordSavePromise = null;
+    const recoveryQuestion = snapshot.questions[Number(snapshot.currentIndex) || 0];
+    snapshot.feedbackPhase = snapshot.answeredCurrent
+      ? (snapshot.selectedKey === recoveryQuestion?.answer ? "correct-feedback" : "wrong-feedback")
+      : "answering";
+    snapshot.feedbackAdvancing = false;
     return snapshot;
   } catch {
     clearQuizRecovery();
@@ -172,7 +229,11 @@ const getQuizConfig = () => {
   };
 };
 
-const scoringModeLabel = (mode) => mode === "streak" ? "连续表现模式" : "固定计分模式";
+const scoringModeLabel = (mode) => {
+  if (mode === "streak") return "连续表现模式";
+  if (mode === "fixed") return "固定计分模式";
+  return "规则未知";
+};
 
 const scoringSummary = (config) => config.scoring.mode === "streak"
   ? `基础答对 +${config.scoring.baseCorrect} · 基础答错 -${config.scoring.baseWrongPenalty} · 第 ${config.scoring.correctStreakAfter + 1} 次连续答对起 +${config.scoring.correctStreakScore} · 第 ${config.scoring.wrongStreakAfter + 1} 次连续答错起 -${config.scoring.wrongStreakPenalty}`
@@ -212,7 +273,7 @@ const buildAnswerRecord = (session = state) => {
     };
   });
   return {
-    id: session.recordId || createAnswerRecordId(),
+    id: session.sessionId || session.recordId || createAnswerRecordId(),
     name: "",
     score: session.score,
     startedAt: session.startedAt,
@@ -227,37 +288,62 @@ const buildAnswerRecord = (session = state) => {
 
 const ensureAnswerRecordSaved = async (session = state, name = "", addToLeaderboard = false) => {
   if (!session) return null;
-  if (session.recordSaved && (!name || session.recordName === name)) return session.recordId || null;
-  if (session.recordSavePromise) return session.recordSavePromise;
-  session.recordSaveStatus = "saving";
-  session.recordSavePromise = (async () => {
-    const response = await fetch("./api/quiz-results", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        record: buildAnswerRecord(session),
-        name: String(name || "").trim(),
-        addToLeaderboard: Boolean(addToLeaderboard),
-      }),
-    });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok || !payload?.ok) throw new Error(payload?.error || "答题记录保存失败。");
-    session.recordId = payload.data.record.id;
-    session.recordSaved = true;
-    session.recordSaveStatus = "saved";
-    session.recordName = payload.data.record.name;
-    session.scoreSaved = Boolean(payload.data.leaderboardSaved) || session.scoreSaved;
-    return session.recordId;
-  })();
-  try {
-    return await session.recordSavePromise;
-  } catch (error) {
-    session.recordSaveStatus = "error";
-    session.recordSaveError = error instanceof Error ? error.message : "答题记录保存失败。";
-    throw error;
-  } finally {
-    session.recordSavePromise = null;
+  const normalizedName = String(name || "").trim().slice(0, 20);
+  const wantsLeaderboard = Boolean(addToLeaderboard) && Boolean(normalizedName);
+  const requirementsSatisfied = () => (
+    session.recordSaved
+    && (!normalizedName || session.recordName === normalizedName)
+    && (!wantsLeaderboard || session.scoreSaved)
+  );
+
+  while (!requirementsSatisfied()) {
+    const pending = session.recordSavePromise;
+    if (pending) {
+      try {
+        await pending;
+      } catch (error) {
+        // A named submission arriving behind an anonymous save must get its
+        // own retry. For an anonymous save, surface the original failure.
+        if (!normalizedName && !wantsLeaderboard) throw error;
+      }
+      if (requirementsSatisfied()) return session.recordId || session.sessionId || null;
+      continue;
+    }
+
+    session.sessionId = session.sessionId || session.recordId || createAnswerRecordId();
+    session.recordSaveStatus = "saving";
+    session.recordSaveError = "";
+    const requestPromise = (async () => {
+      const response = await fetch("./api/quiz-results", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          record: buildAnswerRecord(session),
+          name: normalizedName,
+          addToLeaderboard: wantsLeaderboard,
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.ok) throw new Error(payload?.error || "答题记录保存失败。");
+      session.recordId = payload.data.record.id;
+      session.recordSaved = true;
+      session.recordSaveStatus = "saved";
+      session.recordName = payload.data.record.name;
+      session.scoreSaved = Boolean(payload.data.leaderboardSaved) || session.scoreSaved;
+      return session.recordId;
+    })();
+    session.recordSavePromise = requestPromise;
+    try {
+      await requestPromise;
+    } catch (error) {
+      session.recordSaveStatus = "error";
+      session.recordSaveError = error instanceof Error ? error.message : "答题记录保存失败。";
+      throw error;
+    } finally {
+      if (session.recordSavePromise === requestPromise) session.recordSavePromise = null;
+    }
   }
+  return session.recordId || session.sessionId || null;
 };
 
 const getWordOccurrences = (sentence, word) => {
@@ -508,6 +594,7 @@ const renderStart = () => {
         <div class="button-stack">
           <button class="primary-button" type="button" data-action="start" ${hasPlayableQuestions ? "" : "disabled"}>开始答题</button>
           <button class="secondary-button" type="button" data-action="leaderboard">查看排行榜</button>
+          <button class="secondary-button" type="button" data-action="answer-records">查看答题记录</button>
         </div>
         <a class="admin-link" href="./admin.html">进入管理后台</a>
       </div>
@@ -569,6 +656,7 @@ const renderStart = () => {
   });
   app.querySelector('[data-action="start"]').addEventListener("click", startGame);
   app.querySelector('[data-action="leaderboard"]').addEventListener("click", renderLeaderboard);
+  app.querySelector('[data-action="answer-records"]').addEventListener("click", renderAnswerRecords);
 };
 
 const renderLeaderboard = async () => {
@@ -601,12 +689,157 @@ const renderLeaderboard = async () => {
         `}
         <div class="button-stack">
           <button class="primary-button" type="button" data-action="start">开始答题</button>
+          <button class="secondary-button" type="button" data-action="answer-records">查看答题记录</button>
           <button class="secondary-button" type="button" data-action="home">返回首页</button>
         </div>
       </div>
     </section>
   `;
   app.querySelector('[data-action="start"]').addEventListener("click", startGame);
+  app.querySelector('[data-action="answer-records"]').addEventListener("click", renderAnswerRecords);
+  app.querySelector('[data-action="home"]').addEventListener("click", renderStart);
+};
+
+const recordOptionClass = (option, recordQuestion) => {
+  if (option.key === recordQuestion.answer) return "correct";
+  if (option.key === recordQuestion.selectedKey) return "wrong";
+  return "";
+};
+
+const getAnsweredRecordQuestions = (record) => {
+  const questions = (Array.isArray(record?.questions) ? record.questions : [])
+    .filter((question) => question && question.selectedKey != null);
+  const hasCompleteQuizOrder = questions.length > 0
+    && questions.every((question) => Number.isInteger(Number(question.quizIndex)) && Number(question.quizIndex) >= 0);
+  if (!hasCompleteQuizOrder) return questions;
+  return questions
+    .map((question, originalIndex) => ({ question, originalIndex }))
+    .sort((left, right) => Number(left.question.quizIndex) - Number(right.question.quizIndex) || left.originalIndex - right.originalIndex)
+    .map(({ question }) => question);
+};
+
+const renderRecordQuestion = (question, index) => {
+  const selectedOption = question.options?.find((option) => option.key === question.selectedKey);
+  const answerOption = question.options?.find((option) => option.key === question.answer);
+  const status = question.isCorrect ? "回答正确" : "回答错误";
+  return `
+    <article class="record-question-card">
+      <div class="record-question-heading">
+        <strong>第 ${index + 1} 题</strong>
+        <span class="record-question-status ${question.isCorrect ? "correct" : "wrong"}">${status}</span>
+      </div>
+      ${question.scoreDelta != null ? `<p class="record-question-score ${question.scoreTier === "streak" ? "streak" : "base"}"><strong>${escapeHtml(question.scoreLabel || "本题得分")}</strong><span>${escapeHtml(formatScoreDelta(question.scoreDelta))} 分</span>${question.correctStreak || question.wrongStreak ? `<small>${question.correctStreak ? `连续答对 ${question.correctStreak} 题` : `连续答错 ${question.wrongStreak} 题`}</small>` : ""}</p>` : ""}
+      <p class="record-question-meta">${escapeHtml(question.article || "课内文章")} · 考查实词：${escapeHtml(question.word || "未标注")}</p>
+      ${question.stem ? `<p class="record-question-stem">${escapeHtml(question.stem)}</p>` : ""}
+      <p class="record-question-sentence">${renderSentence(question)}</p>
+      <div class="record-option-list">
+        ${(Array.isArray(question.options) ? question.options : []).map((option) => `
+          <div class="record-option ${recordOptionClass(option, question)}">
+            <span class="option-key">${escapeHtml(option.key)}</span>
+            <span>${escapeHtml(option.text)}</span>
+          </div>
+        `).join("")}
+      </div>
+      <p class="record-question-answer">你的回答：${escapeHtml(selectedOption?.text || "未作答")}　正确答案：${escapeHtml(answerOption?.text || "未记录")}</p>
+      <p class="record-question-explanation">解析：${escapeHtml(question.explanation || "暂无解析")}</p>
+    </article>
+  `;
+};
+
+const renderAnswerRecords = async () => {
+  app.innerHTML = `<section class="state-screen loading-screen"><div class="loading-mark" aria-hidden="true">…</div><p class="eyebrow">本机历史答题</p><h1>正在读取答题记录</h1></section>`;
+  try {
+    await loadStudentAnswerRecords();
+  } catch (error) {
+    app.innerHTML = `
+      <section class="state-screen error-screen" aria-labelledby="records-error-title">
+        <div class="error-card">
+          <div class="loading-mark" aria-hidden="true">!</div>
+          <p class="eyebrow">答题记录</p>
+          <h1 id="records-error-title">暂时无法读取</h1>
+          <p class="error-copy muted">${escapeHtml(error instanceof Error ? error.message : "答题记录读取失败。")}</p>
+          <div class="button-stack">
+            <button class="secondary-button" type="button" data-action="home">返回首页</button>
+          </div>
+        </div>
+      </section>
+    `;
+    app.querySelector('[data-action="home"]').addEventListener("click", renderStart);
+    return;
+  }
+
+  app.innerHTML = `
+    <section class="state-screen records-screen" aria-labelledby="records-title">
+      <div class="records-card">
+        <button class="record-back-button" type="button" data-action="home">← 返回首页</button>
+        <p class="eyebrow">本机历史答题</p>
+        <h1 id="records-title">答题记录</h1>
+        <p class="records-intro">这里只显示教师尚未折叠的记录。点击一条记录可查看完整题目和作答情况。</p>
+        ${answerRecords.length === 0 ? `
+          <div class="records-empty">还没有可查看的答题记录，完成一局训练后会自动保存。</div>
+        ` : `
+          <div class="records-list" aria-label="历史答题记录">
+            ${answerRecords.map((record) => `
+              <button class="record-row" type="button" data-record-id="${escapeHtml(record.id)}">
+                <span class="record-row-main"><strong>${escapeHtml(record.name)}</strong><small>${escapeHtml(formatRecordDate(record.finishedAt || record.startedAt))}</small></span>
+                <span class="record-row-stats"><strong>${record.score} 分</strong><small>用时 ${formatSeconds(record.usedSeconds)} · 已答 ${record.answeredCount} 题</small></span>
+                <span class="record-row-arrow" aria-hidden="true">›</span>
+              </button>
+            `).join("")}
+          </div>
+        `}
+        <div class="button-stack">
+          <button class="primary-button" type="button" data-action="start">开始答题</button>
+        </div>
+      </div>
+    </section>
+  `;
+  app.querySelectorAll("[data-record-id]").forEach((button) => {
+    button.addEventListener("click", () => renderAnswerRecordDetail(button.dataset.recordId));
+  });
+  app.querySelector('[data-action="start"]').addEventListener("click", startGame);
+  app.querySelector('[data-action="home"]').addEventListener("click", renderStart);
+};
+
+const renderAnswerRecordDetail = (recordId) => {
+  const record = getAnswerRecord(recordId);
+  if (!record) {
+    renderAnswerRecords();
+    return;
+  }
+  const answeredQuestions = getAnsweredRecordQuestions(record);
+  app.innerHTML = `
+    <section class="state-screen record-detail-screen" aria-labelledby="record-detail-title">
+      <div class="record-detail-card">
+        <button class="record-back-button" type="button" data-action="records">← 返回答题记录</button>
+        <div class="record-detail-header">
+          <div>
+            <p class="eyebrow">完整答题记录</p>
+            <h1 id="record-detail-title">${escapeHtml(record.name)}</h1>
+          </div>
+          <strong class="record-detail-score">${record.score} 分</strong>
+        </div>
+        <div class="record-detail-meta">
+          <span>答题时间：${escapeHtml(formatRecordDate(record.finishedAt || record.startedAt))}</span>
+          <span>用时：${formatSeconds(record.usedSeconds)}</span>
+          <span>计分机制：${escapeHtml(scoringModeLabel(record.scoring?.mode))}</span>
+          <span>训练范围：${escapeHtml(formatLeaderboardContext(record.context))}</span>
+          <span>答对：${record.correctCount}</span>
+          <span>答错：${record.wrongCount}</span>
+          <span>回答题目：${answeredQuestions.length}</span>
+        </div>
+        <div class="record-question-list">
+          ${answeredQuestions.length
+            ? answeredQuestions.map((question, index) => renderRecordQuestion(question, index)).join("")
+            : `<div class="records-empty">本局没有完成作答的题目。</div>`}
+        </div>
+        <div class="button-stack">
+          <button class="secondary-button" type="button" data-action="home">返回首页</button>
+        </div>
+      </div>
+    </section>
+  `;
+  app.querySelector('[data-action="records"]').addEventListener("click", renderAnswerRecords);
   app.querySelector('[data-action="home"]').addEventListener("click", renderStart);
 };
 
@@ -693,6 +926,63 @@ const destroyFeedbackEffects = () => {
   feedbackEffectsController = null;
 };
 
+const clearFeedbackTransition = () => {
+  if (feedbackTransitionTimerId !== null) {
+    window.clearTimeout(feedbackTransitionTimerId);
+    feedbackTransitionTimerId = null;
+  }
+  feedbackTransitionSequence += 1;
+};
+
+const currentFeedbackPhase = (session = state) => {
+  if (!session?.answeredCurrent) return "answering";
+  if (session.feedbackPhase) return session.feedbackPhase;
+  const question = session.questions?.[session.currentIndex];
+  return session.selectedKey === question?.answer ? "correct-feedback" : "wrong-feedback";
+};
+
+const reducedMotionEnabled = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+const feedbackTransitionDelay = (isCorrect, answerDetail) => {
+  if (reducedMotionEnabled()) return isCorrect ? 110 : 80;
+  if (isCorrect) return answerDetail?.tier === "streak" ? 600 : 400;
+  return answerDetail?.tier === "streak" ? 430 : 300;
+};
+
+const scheduleFeedbackTransition = (session, questionIndex, selectedKey, isCorrect, answerDetail) => {
+  clearFeedbackTransition();
+  const sequence = feedbackTransitionSequence;
+  const expectedPhase = isCorrect ? "correct-feedback" : "wrong-highlight";
+  feedbackTransitionTimerId = window.setTimeout(() => {
+    feedbackTransitionTimerId = null;
+    if (
+      sequence !== feedbackTransitionSequence
+      || state !== session
+      || session.screen !== "quiz"
+      || session.currentIndex !== questionIndex
+      || session.selectedKey !== selectedKey
+      || !session.answeredCurrent
+      || session.feedbackAdvancing
+      || currentFeedbackPhase(session) !== expectedPhase
+    ) return;
+
+    if (Date.now() >= session.deadlineAt) {
+      const completedAll = isCorrect && questionIndex + 1 >= session.questions.length;
+      finishGame(completedAll ? "completed" : "timeout");
+      return;
+    }
+
+    if (isCorrect) {
+      nextQuestion(true);
+      return;
+    }
+
+    session.feedbackPhase = "wrong-feedback";
+    renderQuiz();
+    saveQuizRecovery(session);
+  }, feedbackTransitionDelay(isCorrect, answerDetail));
+};
+
 const mountFeedbackEffects = () => {
   const stage = app.querySelector("[data-feedback-effects-stage]");
   const canvas = app.querySelector("[data-feedback-effects-canvas]");
@@ -716,9 +1006,12 @@ const mountFeedbackEffects = () => {
   }
 };
 
-const renderFeedback = (question) => {
+const renderFeedback = (question, mode = "full") => {
   if (!state.answeredCurrent) return "";
   const isCorrect = state.selectedKey === question.answer;
+  const phase = currentFeedbackPhase(state);
+  const visualOnly = mode === "visual-only";
+  const compactCorrect = isCorrect && phase === "correct-feedback";
   const answerDetail = state.answerDetails[state.answerDetails.length - 1];
   const isSuper = answerDetail?.tier === "streak";
   const selectedOption = question.options.find((option) => option.key === state.selectedKey);
@@ -733,18 +1026,36 @@ const renderFeedback = (question) => {
     : "";
   const effectType = getFeedbackEffectType(isCorrect, answerDetail);
   return `
-    <div class="feedback-panel feedback-stage ${isCorrect ? "success" : "error"} ${resultClass} result-${effectType}" data-feedback-effects-stage data-feedback-effect="${effectType}" role="status" aria-live="polite">
+    <div class="feedback-panel feedback-stage ${isCorrect ? "success" : "error"} ${resultClass} result-${effectType} ${visualOnly ? "feedback-visual-only" : ""} ${compactCorrect ? "feedback-compact" : ""} ${!isCorrect && !visualOnly ? "feedback-error-card" : ""}" data-feedback-effects-stage data-feedback-effect="${effectType}" role="${visualOnly ? "presentation" : "status"}" aria-live="${visualOnly ? "off" : "polite"}" ${visualOnly ? "aria-hidden=\"true\"" : ""}>
       <canvas class="feedback-effects-canvas" data-feedback-effects-canvas aria-hidden="true"></canvas>
       <div class="feedback-content">
-        <div class="score-event" aria-label="${escapeHtml(`${scoreLabel} ${scoreText} 分`)}">
-          <span class="score-event-icon" aria-hidden="true">${isCorrect ? (isSuper ? "★" : "✓") : (isSuper ? "!" : "×")}</span>
-          <span class="score-event-copy"><strong>${escapeHtml(scoreLabel)}</strong><b>${escapeHtml(scoreText)} 分</b></span>
-        </div>
-        <div class="feedback-title">${isCorrect ? "回答正确！" : "回答错误"}</div>
-        ${streakText ? `<p class="feedback-streak">${escapeHtml(streakText)}</p>` : ""}
-        ${!isCorrect ? `<p class="feedback-answer">你的选择：${escapeHtml(selectedOption?.key || "未选择")}　正确答案：${escapeHtml(answerOption?.key || question.answer)}</p>` : ""}
-        <p>${escapeHtml(question.explanation || "本题暂无补充解析。")}</p>
-        <button class="primary-button" type="button" data-action="next">${state.currentIndex + 1 >= state.questions.length ? "查看成绩" : "下一题"}</button>
+        ${visualOnly ? "" : `
+          <div class="score-event" aria-label="${escapeHtml(`${scoreLabel} ${scoreText} 分`)}">
+            <span class="score-event-icon" aria-hidden="true">${isCorrect ? (isSuper ? "★" : "✓") : (isSuper ? "!" : "×")}</span>
+            <span class="score-event-copy"><strong>${escapeHtml(scoreLabel)}</strong><b>${escapeHtml(scoreText)} 分</b></span>
+          </div>
+          <div class="feedback-title">${isCorrect ? "回答正确！" : "回答错误"}</div>
+          ${streakText ? `<p class="feedback-streak">${escapeHtml(streakText)}</p>` : ""}
+          ${!isCorrect ? `
+            <div class="feedback-answer-grid" aria-label="本题作答对照">
+              <div class="feedback-answer-item">
+                <span>你的选择</span>
+                <strong><b>${escapeHtml(selectedOption?.key || "未选择")}</b>${escapeHtml(selectedOption?.text || "未选择")}</strong>
+              </div>
+              <div class="feedback-answer-item feedback-answer-correct">
+                <span>正确答案</span>
+                <strong><b>${escapeHtml(answerOption?.key || question.answer)}</b>${escapeHtml(answerOption?.text || "未记录")}</strong>
+              </div>
+            </div>
+            <div class="feedback-explanation">
+              <span>解析</span>
+              <p>${escapeHtml(question.explanation || "本题暂无补充解析。")}</p>
+            </div>
+            <div class="feedback-actions">
+              <button class="primary-button" type="button" data-action="next">${state.currentIndex + 1 >= state.questions.length ? "查看成绩" : "下一题"} <span aria-hidden="true">→</span></button>
+            </div>
+          ` : compactCorrect ? "" : `<p>${escapeHtml(question.explanation || "本题暂无补充解析。")}</p>`}
+        `}
       </div>
     </div>
   `;
@@ -760,6 +1071,10 @@ const renderQuiz = () => {
   const questionPrompt = isContextMeaning
     ? `句中“${escapeHtml(question.word || "")}”的意思是：`
     : escapeHtml(question.stem ? "请选择最符合题意的一项：" : "请选择答案：");
+  const feedbackPhase = currentFeedbackPhase(state);
+  const showWrongFeedback = feedbackPhase === "wrong-feedback";
+  const showCorrectFeedback = feedbackPhase === "correct-feedback";
+  const showWrongHighlight = feedbackPhase === "wrong-highlight";
 
   destroyFeedbackEffects();
   app.innerHTML = `
@@ -788,8 +1103,15 @@ const renderQuiz = () => {
         <p class="question-prompt">${questionPrompt}</p>
         ${renderContext(question)}
         ${renderSupportingItems(question, state.answeredCurrent)}
-        <div class="option-list" role="group" aria-label="答案选项">${renderOptions(question)}</div>
-        ${renderFeedback(question)}
+        <div class="answer-interaction answer-interaction-${feedbackPhase}">
+          ${showWrongFeedback
+            ? renderFeedback(question)
+            : `
+              <div class="option-list" role="group" aria-label="答案选项">${renderOptions(question)}</div>
+              ${showCorrectFeedback ? renderFeedback(question, "compact") : ""}
+              ${showWrongHighlight ? renderFeedback(question, "visual-only") : ""}
+            `}
+        </div>
         <div class="quiz-actions">
           ${!state.answeredCurrent ? `<p class="quiz-footnote">选择一个选项提交答案</p>` : ""}
           <button class="secondary-button finish-button" type="button" data-action="finish">提前交卷</button>
@@ -802,7 +1124,7 @@ const renderQuiz = () => {
     button.addEventListener("click", () => submitAnswer(button.dataset.option));
   });
   const nextButton = app.querySelector('[data-action="next"]');
-  if (nextButton) nextButton.addEventListener("click", nextQuestion);
+  if (nextButton) nextButton.addEventListener("click", () => nextQuestion(false));
   app.querySelector('[data-action="finish"]').addEventListener("click", finishEarly);
   app.querySelector('[data-action="font-decrease"]').addEventListener("click", () => adjustQuizFontScale(-FONT_SCALE_STEP));
   app.querySelector('[data-action="font-increase"]').addEventListener("click", () => adjustQuizFontScale(FONT_SCALE_STEP));
@@ -821,9 +1143,53 @@ const formatLeaderboardContext = (context) => {
   return `${scope}${articleText ? ` · ${articleText}` : ""} · ${duration} · ${mode}`;
 };
 
-const canLeaveResult = (session) => {
-  if (!session || session.recordSaveStatus !== "error") return true;
-  return window.confirm("本次答题记录尚未保存，离开后需要重新答题才能补救。确定离开吗？");
+const prepareToLeaveResult = async (session) => {
+  if (!session) return false;
+  if (session.recordSavePromise || session.recordSaveStatus === "saving" || session.recordSaveStatus === "pending") {
+    try {
+      if (session.recordSavePromise) {
+        await session.recordSavePromise;
+      } else {
+        await ensureAnswerRecordSaved(session);
+      }
+    } catch {
+      // The failure state below gives the student an explicit retry/leave choice.
+    }
+  }
+  if (session.recordSaveStatus !== "error") return session.recordSaveStatus === "saved";
+  if (state === session && session.screen === "result") renderResult(session);
+  return window.confirm("本次答题记录尚未成功保存。如果现在离开，本局记录可能无法恢复。确定离开吗？");
+};
+
+const leaveResult = async (session, destination) => {
+  if (!session || session.leaveInProgress) return;
+  session.leaveInProgress = true;
+  const actionButtons = ["leaderboard", "restart", "home"]
+    .map((action) => app.querySelector(`[data-action="${action}"]`))
+    .filter(Boolean);
+  actionButtons.forEach((button) => { button.disabled = true; });
+  const canLeave = await prepareToLeaveResult(session);
+  if (!canLeave) {
+    session.leaveInProgress = false;
+    if (state === session && session.screen === "result") renderResult(session);
+    return;
+  }
+  if (destination === "restart") {
+    const started = await startGame();
+    if (!started) {
+      session.leaveInProgress = false;
+      if (state === session && session.screen === "result") renderResult(session);
+      return;
+    }
+    session.screen = "replaced";
+    return;
+  }
+  session.screen = destination;
+  if (destination === "leaderboard") {
+    await renderLeaderboard();
+  } else {
+    renderStart();
+  }
 };
 
 const renderResult = (session = state) => {
@@ -856,7 +1222,7 @@ const renderResult = (session = state) => {
         </div>
         <p class="result-meta">${resultMeta} · 用时 ${formatSeconds(usedSeconds)}</p>
         ${session.recordSaveStatus === "saving" ? `<p class="saved-note">正在保存本次答题记录…</p>` : ""}
-        ${session.recordSaveStatus === "error" ? `<p class="record-save-error" role="alert">答题记录尚未保存，请再次提交姓名或留空重试。</p>` : ""}
+        ${session.recordSaveStatus === "error" ? `<p class="record-save-error" role="alert">答题记录尚未成功保存，请再次提交姓名或留空重试；离开本页时还会再次确认。</p>` : ""}
         ${session.scoreSaved ? `
           <p class="saved-note">已将本次答题记录保存，并计入排行榜。</p>
         ` : session.recordNameFinalized && session.recordName !== "未命名" ? `
@@ -866,33 +1232,21 @@ const renderResult = (session = state) => {
             <label for="player-name">姓名（可不填；不填则显示“未命名”）</label>
             <div class="score-form-row">
               <input id="player-name" name="name" type="text" maxlength="20" placeholder="请输入名字，可留空" autocomplete="off" />
-              <button class="primary-button" type="submit">保存姓名并加入排行</button>
+              <button class="primary-button" type="submit" ${session.leaveInProgress || session.recordSaveStatus === "saving" ? "disabled" : ""}>保存姓名并加入排行</button>
             </div>
           </form>
         `}
         <div class="button-stack">
-          <button class="${session.scoreSaved ? "primary-button" : "secondary-button"}" type="button" data-action="leaderboard">查看排行榜</button>
-          <button class="secondary-button" type="button" data-action="restart">再来一局</button>
-          <button class="secondary-button" type="button" data-action="home">返回首页</button>
+          <button class="${session.scoreSaved ? "primary-button" : "secondary-button"}" type="button" data-action="leaderboard" ${session.leaveInProgress ? "disabled" : ""}>查看排行榜</button>
+          <button class="secondary-button" type="button" data-action="restart" ${session.leaveInProgress ? "disabled" : ""}>再来一局</button>
+          <button class="secondary-button" type="button" data-action="home" ${session.leaveInProgress ? "disabled" : ""}>返回首页</button>
         </div>
       </div>
     </section>
   `;
-  app.querySelector('[data-action="restart"]').addEventListener("click", () => {
-    session.screen = "replaced";
-    clearQuizRecovery();
-    startGame();
-  });
-  app.querySelector('[data-action="leaderboard"]').addEventListener("click", () => {
-    if (!canLeaveResult(session)) return;
-    session.screen = "leaderboard";
-    renderLeaderboard();
-  });
-  app.querySelector('[data-action="home"]').addEventListener("click", () => {
-    if (!canLeaveResult(session)) return;
-    session.screen = "home";
-    renderStart();
-  });
+  app.querySelector('[data-action="restart"]').addEventListener("click", () => leaveResult(session, "restart"));
+  app.querySelector('[data-action="leaderboard"]').addEventListener("click", () => leaveResult(session, "leaderboard"));
+  app.querySelector('[data-action="home"]').addEventListener("click", () => leaveResult(session, "home"));
   const scoreForm = app.querySelector('[data-action="score-form"]');
   if (scoreForm) {
     scoreForm.addEventListener("submit", async (event) => {
@@ -935,7 +1289,10 @@ const startTimer = () => {
     const remainingMilliseconds = session.deadlineAt - Date.now();
     session.remainingSeconds = Math.max(0, Math.ceil(remainingMilliseconds / 1000));
     if (remainingMilliseconds <= 0) {
-      const completedAll = session.answeredCurrent && session.currentIndex + 1 >= session.questions.length;
+      const waitingForWrongFeedback = ["wrong-highlight", "wrong-feedback"].includes(currentFeedbackPhase(session));
+      const completedAll = session.answeredCurrent
+        && !waitingForWrongFeedback
+        && session.currentIndex + 1 >= session.questions.length;
       finishGame(completedAll ? "completed" : "timeout");
       return;
     }
@@ -963,66 +1320,88 @@ const refreshBankBeforeStart = async () => {
 };
 
 const startGame = async () => {
-  if (state?.screen === "quiz") return;
-  if (state?.screen === "result") state.screen = "replaced";
-  clearQuizRecovery();
+  if (gameStarting || state?.screen === "quiz") return false;
+  gameStarting = true;
+  clearFeedbackTransition();
+  const startButton = app.querySelector('[data-action="start"]');
+  if (startButton) {
+    startButton.disabled = true;
+    startButton.textContent = "正在开始…";
+  }
   try {
+    clearQuizRecovery();
     await refreshBankBeforeStart();
+    const config = getQuizConfig();
+    if (startSelection.volumes.length === 0) {
+      window.alert("请至少勾选一本教材册，或点击“全部教材册”。");
+      return false;
+    }
+    if (startSelection.articleIds.length === 0) {
+      window.alert("请至少勾选一篇文章，或点击“全部文章”。");
+      return false;
+    }
+    const selectedQuestions = getSelectedQuestions();
+    if (selectedQuestions.length === 0) {
+      window.alert("这个范围暂时没有可用题目，请换一个教材册或篇目。");
+      return false;
+    }
+    const startedAt = Date.now();
+    state = {
+      screen: "quiz",
+      questions: shuffle(selectedQuestions).map(shuffleQuestionOptions),
+      currentIndex: 0,
+      score: 0,
+      answered: 0,
+      correct: 0,
+      wrong: 0,
+      remainingSeconds: config.durationSeconds,
+      durationSeconds: config.durationSeconds,
+      deadlineAt: startedAt + config.durationSeconds * 1000,
+      sessionId: createAnswerRecordId(),
+      volumeLabels: [...startSelection.volumes],
+      articleIds: [...startSelection.articleIds],
+      scoringConfig: { ...config.scoring },
+      correctStreak: 0,
+      wrongStreak: 0,
+      selectedKey: null,
+      answeredCurrent: false,
+      feedbackPhase: "answering",
+      feedbackAdvancing: false,
+      finishPromptOpen: false,
+      completedAll: false,
+      finishReason: "in_progress",
+      scoreSaved: false,
+      recordId: null,
+      recordSaved: false,
+      recordSaveStatus: "pending",
+      recordSavePromise: null,
+      recordSaveError: "",
+      recordName: "未命名",
+      recordNameFinalized: false,
+      answerDetails: [],
+      finishedAt: 0,
+      startedAt,
+    };
+    feedbackEffectPlayedKey = "";
+    renderQuiz();
+    startTimer();
+    saveQuizRecovery();
+    return true;
   } catch (error) {
     window.alert(error instanceof Error ? `读取最新题库和计分规则失败：${error.message}` : "读取最新题库和计分规则失败。");
-    return;
+    return false;
+  } finally {
+    finishStartGame();
   }
-  const config = getQuizConfig();
-  if (startSelection.volumes.length === 0) {
-    window.alert("请至少勾选一本教材册，或点击“全部教材册”。");
-    return;
+};
+
+const finishStartGame = () => {
+  gameStarting = false;
+  const startButtonAfterAttempt = app.querySelector('[data-action="start"]');
+  if (startButtonAfterAttempt && state?.screen !== "quiz") {
+    startButtonAfterAttempt.disabled = getSelectedQuestions().length === 0;
+    startButtonAfterAttempt.textContent = "开始答题";
   }
-  if (startSelection.articleIds.length === 0) {
-    window.alert("请至少勾选一篇文章，或点击“全部文章”。");
-    return;
-  }
-  const selectedQuestions = getSelectedQuestions();
-  if (selectedQuestions.length === 0) {
-    window.alert("这个范围暂时没有可用题目，请换一个教材册或篇目。");
-    return;
-  }
-  state = {
-    screen: "quiz",
-    questions: shuffle(selectedQuestions).map(shuffleQuestionOptions),
-    currentIndex: 0,
-    score: 0,
-    answered: 0,
-    correct: 0,
-    wrong: 0,
-    remainingSeconds: config.durationSeconds,
-    durationSeconds: config.durationSeconds,
-    deadlineAt: Date.now() + config.durationSeconds * 1000,
-    sessionId: createAnswerRecordId(),
-    volumeLabels: [...startSelection.volumes],
-    articleIds: [...startSelection.articleIds],
-    scoringConfig: { ...config.scoring },
-    correctStreak: 0,
-    wrongStreak: 0,
-    selectedKey: null,
-    answeredCurrent: false,
-    completedAll: false,
-    finishReason: "in_progress",
-    scoreSaved: false,
-    recordId: null,
-    recordSaved: false,
-    recordSaveStatus: "pending",
-    recordSavePromise: null,
-    recordSaveError: "",
-    recordName: "未命名",
-    recordNameFinalized: false,
-    answerDetails: [],
-    finishedAt: 0,
-    startedAt: Date.now(),
-  };
-  feedbackEffectPlayedKey = "";
-  renderQuiz();
-  startTimer();
-  saveQuizRecovery();
 };
 
 const submitAnswer = (key) => {
@@ -1058,12 +1437,19 @@ const submitAnswer = (key) => {
     state.score += scoreEvent.scoreDelta;
     state.wrong += 1;
   }
+  state.feedbackPhase = isCorrect ? "correct-feedback" : "wrong-highlight";
+  state.feedbackAdvancing = false;
   renderQuiz();
   saveQuizRecovery();
+  scheduleFeedbackTransition(state, state.currentIndex, key, isCorrect, scoreEvent);
 };
 
-const nextQuestion = () => {
-  if (!state || !state.answeredCurrent) return;
+const nextQuestion = (automatic = false) => {
+  if (!state || state.screen !== "quiz" || !state.answeredCurrent || state.feedbackAdvancing) return;
+  const phase = currentFeedbackPhase(state);
+  if (automatic ? phase !== "correct-feedback" : phase !== "wrong-feedback") return;
+  state.feedbackAdvancing = true;
+  clearFeedbackTransition();
   if (state.currentIndex + 1 >= state.questions.length) {
     finishGame("completed");
     return;
@@ -1071,14 +1457,20 @@ const nextQuestion = () => {
   state.currentIndex += 1;
   state.selectedKey = null;
   state.answeredCurrent = false;
+  state.feedbackPhase = "answering";
+  state.feedbackAdvancing = false;
   renderQuiz();
   saveQuizRecovery();
 };
 
 const finishEarly = () => {
-  if (!state || state.screen !== "quiz") return;
+  if (!state || state.screen !== "quiz" || state.finishPromptOpen) return;
+  state.finishPromptOpen = true;
   const confirmed = window.confirm("确定要提前交卷吗？当前成绩将作为本局成绩保存。");
-  if (!confirmed) return;
+  if (!confirmed) {
+    state.finishPromptOpen = false;
+    return;
+  }
   const completedAll = state.answeredCurrent && state.currentIndex + 1 >= state.questions.length;
   finishGame(completedAll ? "completed" : "manual");
 };
@@ -1086,6 +1478,7 @@ const finishEarly = () => {
 const finishGame = (reason = "timeout") => {
   const session = state;
   if (!session || session.screen === "result") return;
+  clearFeedbackTransition();
   if (reason === "manual" && Date.now() >= session.deadlineAt) reason = "timeout";
   window.clearInterval(timerId);
   session.completedAll = reason === "completed";
@@ -1120,6 +1513,15 @@ const loadBank = async () => {
       state = recovery;
       renderQuiz();
       startTimer();
+      if (state.answeredCurrent && currentFeedbackPhase(state) === "correct-feedback") {
+        scheduleFeedbackTransition(
+          state,
+          state.currentIndex,
+          state.selectedKey,
+          true,
+          state.answerDetails[state.answerDetails.length - 1],
+        );
+      }
     } else {
       clearQuizRecovery();
     }
