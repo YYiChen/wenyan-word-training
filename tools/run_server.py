@@ -36,7 +36,7 @@ from update_service import UpdateManager
 
 
 APP_NAME = "wenyan-word-training"
-APP_VERSION = "1.4.6"
+APP_VERSION = "1.4.8"
 
 
 # 开发时，网页与题库数据都在项目根目录；封装后，网页资源在 PyInstaller
@@ -102,7 +102,7 @@ MIN_DURATION_SECONDS = 10
 MAX_DURATION_SECONDS = 3600
 MAX_STREAK_THRESHOLD = 5
 ANSWER_RECORD_RETENTION_DAYS = 30
-# Folded and unfolded records each have their own retention cap.
+# Ordinary and PK records share one retention cap.
 ANSWER_RECORD_MAX_COUNT = 100
 BACKUP_MAX_COUNT = 100
 BACKUP_RETENTION_DAYS = 90
@@ -982,6 +982,7 @@ def validate_answer_record(payload: Any) -> dict[str, Any]:
     correct = sum(question["isCorrect"] is True for question in clean_questions)
     wrong = sum(question["isCorrect"] is False for question in clean_questions)
     return {
+        "recordType": "solo",
         "id": record_id,
         "name": str(payload.get("name", "")).strip()[:20] or "未命名",
         "score": score,
@@ -1000,13 +1001,162 @@ def validate_answer_record(payload: Any) -> dict[str, Any]:
     }
 
 
+def _validate_pk_player(payload: Any, position: int) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ValueError(f"PK 玩家 {position} 数据必须是对象。")
+    player_id = str(payload.get("playerId", f"player{position}")).strip()[:20]
+    if player_id not in {"player1", "player2"}:
+        raise ValueError("PK 玩家 id 必须是 player1 或 player2。")
+    integer_fields = ("score", "answeredCount", "correctCount", "wrongCount", "usedMilliseconds", "usedSeconds")
+    clean_numbers: dict[str, int] = {}
+    for field in integer_fields:
+        value = payload.get(field, 0)
+        if isinstance(value, bool):
+            raise ValueError(f"PK 玩家 {position} 的 {field} 格式不正确。")
+        try:
+            value = int(value)
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"PK 玩家 {position} 的 {field} 格式不正确。") from error
+        if field != "score" and value < 0:
+            raise ValueError(f"PK 玩家 {position} 的 {field} 不能为负数。")
+        if field == "usedSeconds" and value > 86400:
+            raise ValueError(f"PK 玩家 {position} 的用时过长。")
+        if field == "usedMilliseconds" and value > 86400000:
+            raise ValueError(f"PK 玩家 {position} 的用时过长。")
+        clean_numbers[field] = value
+    questions = payload.get("questions", [])
+    if not isinstance(questions, list) or len(questions) > 1000:
+        raise ValueError(f"PK 玩家 {position} 的题目快照数量不正确。")
+    clean_questions = [
+        validate_answer_record_question(question, question_position)
+        for question_position, question in enumerate(questions, start=1)
+    ]
+    completed = payload.get("completed", False)
+    if not isinstance(completed, bool):
+        raise ValueError(f"PK 玩家 {position} 的完成状态格式不正确。")
+    finished_at = payload.get("finishedAt", 0)
+    if isinstance(finished_at, bool):
+        raise ValueError(f"PK 玩家 {position} 的完成时间格式不正确。")
+    try:
+        finished_at = int(finished_at)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"PK 玩家 {position} 的完成时间格式不正确。") from error
+    if finished_at < 0:
+        raise ValueError(f"PK 玩家 {position} 的完成时间格式不正确。")
+    return {
+        "playerId": player_id,
+        **clean_numbers,
+        "completed": completed,
+        "finishedAt": finished_at,
+        "questions": clean_questions,
+    }
+
+
+def validate_pk_record(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ValueError("PK 答题记录必须是对象。")
+    record_id = str(payload.get("id", "")).strip()[:120]
+    if not record_id:
+        raise ValueError("PK 答题记录缺少 id。")
+    match_id = str(payload.get("matchId", record_id)).strip()[:120]
+    if not match_id:
+        raise ValueError("PK 答题记录缺少 matchId。")
+    pk_mode = payload.get("pkMode")
+    if pk_mode not in {"time", "questions"}:
+        raise ValueError("PK 模式必须是 time 或 questions。")
+    def optional_limit(field: str, maximum: int) -> int | None:
+        value = payload.get(field)
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            raise ValueError(f"PK 记录的 {field} 格式不正确。")
+        try:
+            value = int(value)
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"PK 记录的 {field} 格式不正确。") from error
+        if value < 1 or value > maximum:
+            raise ValueError(f"PK 记录的 {field} 超出范围。")
+        return value
+    time_limit = optional_limit("timeLimitSeconds", 86400)
+    question_limit = optional_limit("questionLimit", 1000)
+    if pk_mode == "time" and time_limit is None:
+        raise ValueError("比时间 PK 必须记录 timeLimitSeconds。")
+    if pk_mode == "questions" and question_limit is None:
+        raise ValueError("比题数 PK 必须记录 questionLimit。")
+    try:
+        started_at = int(payload.get("startedAt", 0))
+        finished_at = int(payload.get("finishedAt", 0))
+    except (TypeError, ValueError) as error:
+        raise ValueError("PK 记录的开始或结束时间格式不正确。") from error
+    if min(started_at, finished_at) < 0 or finished_at < started_at:
+        raise ValueError("PK 记录的时间范围不正确。")
+    archived = payload.get("archived", False)
+    if not isinstance(archived, bool):
+        raise ValueError("PK 记录的折叠状态格式不正确。")
+    try:
+        archived_at = int(payload.get("archivedAt", 0))
+    except (TypeError, ValueError) as error:
+        raise ValueError("PK 记录的折叠时间格式不正确。") from error
+    if archived_at < 0:
+        raise ValueError("PK 记录的折叠时间格式不正确。")
+    if archived and archived_at == 0:
+        archived_at = int(time.time() * 1000)
+    if not archived:
+        archived_at = 0
+    players = payload.get("players")
+    if not isinstance(players, list) or len(players) != 2:
+        raise ValueError("PK 记录必须包含两名玩家。")
+    clean_players = [_validate_pk_player(player, index) for index, player in enumerate(players, start=1)]
+    if {player["playerId"] for player in clean_players} != {"player1", "player2"}:
+        raise ValueError("PK 记录的玩家必须分别是 player1 和 player2。")
+    shared_ids = payload.get("sharedQuestionIds", [])
+    if not isinstance(shared_ids, list) or len(shared_ids) > 1000:
+        raise ValueError("PK 记录的 sharedQuestionIds 格式不正确。")
+    clean_shared_ids: list[str] = []
+    for question_id in shared_ids:
+        question_id = str(question_id).strip()[:120]
+        if question_id and question_id not in clean_shared_ids:
+            clean_shared_ids.append(question_id)
+    scoring = None
+    if payload.get("scoring") is not None:
+        scoring = validate_scoring_config({"scoring": payload.get("scoring")})
+    answer_count = sum(player["answeredCount"] for player in clean_players)
+    correct_count = sum(player["correctCount"] for player in clean_players)
+    wrong_count = sum(player["wrongCount"] for player in clean_players)
+    return {
+        "recordType": "pk",
+        "id": record_id,
+        "matchId": match_id,
+        "name": "双人 PK",
+        "score": 0,
+        "startedAt": started_at,
+        "finishedAt": finished_at,
+        "usedSeconds": max(player["usedSeconds"] for player in clean_players),
+        "completedAll": True,
+        "answeredCount": answer_count,
+        "correctCount": correct_count,
+        "wrongCount": wrong_count,
+        "archived": archived,
+        "archivedAt": archived_at,
+        "scoring": scoring,
+        "context": validate_leaderboard_context(payload.get("context")),
+        "pkMode": pk_mode,
+        "timeLimitSeconds": time_limit,
+        "questionLimit": question_limit,
+        "sharedQuestionIds": clean_shared_ids,
+        "players": clean_players,
+        "questions": [],
+    }
+
+
 def validate_answer_records(payload: Any) -> list[dict[str, Any]]:
     if not isinstance(payload, list):
         raise ValueError("答题记录必须是数组。")
     clean: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     for record in payload:
-        item = validate_answer_record(record)
+        validator = validate_pk_record if isinstance(record, dict) and record.get("recordType") == "pk" else validate_answer_record
+        item = validator(record)
         if item["id"] in seen_ids:
             raise ValueError(f"答题记录存在重复 id“{item['id']}”。")
         seen_ids.add(item["id"])
@@ -1015,17 +1165,12 @@ def validate_answer_records(payload: Any) -> list[dict[str, Any]]:
 
 
 def prune_answer_records(records: list[dict[str, Any]], now_ms: int | None = None) -> list[dict[str, Any]]:
-    """Keep one month of records, capped independently by folded state."""
+    """Keep one month of records with one shared cap for solo and PK records."""
     current_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
     cutoff_ms = current_ms - ANSWER_RECORD_RETENTION_DAYS * 24 * 60 * 60 * 1000
     ordered = sorted(records, key=lambda item: (-item["finishedAt"], -item["startedAt"]))
     recent = [record for record in ordered if record["finishedAt"] >= cutoff_ms]
-    unfolded = [record for record in recent if not record["archived"]][:ANSWER_RECORD_MAX_COUNT]
-    folded = [record for record in recent if record["archived"]][:ANSWER_RECORD_MAX_COUNT]
-    retained = [*unfolded, *folded]
-    # Re-sort after applying the two independent caps so callers keep the
-    # existing newest-first API order.
-    return sorted(retained, key=lambda item: (-item["finishedAt"], -item["startedAt"]))
+    return recent[:ANSWER_RECORD_MAX_COUNT]
 
 
 def validate_answer_records_import(payload: Any) -> list[dict[str, Any]]:
@@ -1513,7 +1658,16 @@ def ensure_answer_records() -> None:
     try:
         load_answer_records(persist_pruned=True)
     except (OSError, json.JSONDecodeError, ValueError) as error:
-        raise RuntimeError(f"答题记录清理失败，请检查 {ANSWER_RECORDS_PATH}：{error}") from error
+        # Keep the original file in the automatic backup area, then repair the
+        # active file so an old or damaged history cannot block the service.
+        print(f"答题记录文件需要修复：{error}")
+        try:
+            backup_and_write(ANSWER_RECORDS_PATH, [], ANSWER_RECORDS_BACKUP_DIR)
+            print("已备份原答题记录并创建空的答题记录文件。")
+        except OSError as repair_error:
+            # A permission/lock problem should be visible in the launcher log,
+            # but the student page can still be used without history access.
+            print(f"答题记录文件修复失败，将继续启动服务：{repair_error}")
 
 
 def ensure_leaderboard() -> None:
@@ -1609,10 +1763,18 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
                 self.send_api_error(f"读取排行榜失败：{error}", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
         if route == "/api/student-answer-records":
+            # Answer records are classroom data and are only available from
+            # the authenticated teacher backend. Keep the legacy route so an
+            # old cached student page cannot bypass that boundary.
+            if not self.require_admin():
+                return
             try:
                 self.send_json(filter_student_answer_records(load_answer_records()))
             except (OSError, json.JSONDecodeError, ValueError) as error:
-                self.send_api_error(f"读取答题记录失败：{error}", HTTPStatus.INTERNAL_SERVER_ERROR)
+                # Student records are an optional history view. A damaged
+                # legacy file must not prevent a new quiz from starting.
+                print(f"学生答题记录暂时不可读，将返回空列表：{error}")
+                self.send_json([], extra_headers={"X-Wenyan-Records-Status": "unavailable"})
             return
         if route == "/api/answer-records":
             if not self.require_admin():
@@ -1851,8 +2013,43 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
                     },
                 })
                 return
+            if route == "/api/pk-results":
+                if not isinstance(payload, dict):
+                    raise ValueError("PK 答题结果请求必须是对象。")
+                raw_record = payload.get("record", payload)
+                if not isinstance(raw_record, dict):
+                    raise ValueError("PK 答题结果请求缺少 record 对象。")
+                record = validate_pk_record(raw_record)
+                with WRITE_LOCK:
+                    current_records = load_answer_records()
+                    existing = next(
+                        (
+                            item for item in current_records
+                            if item.get("recordType") == "pk"
+                            and item.get("matchId") == record["matchId"]
+                        ),
+                        None,
+                    )
+                    if existing is not None:
+                        saved_record = existing
+                        next_records = current_records
+                        record_saved = False
+                    else:
+                        next_records = prune_answer_records(validate_answer_records([*current_records, record]))
+                        backup_and_write(ANSWER_RECORDS_PATH, next_records, ANSWER_RECORDS_BACKUP_DIR)
+                        saved_record = next((item for item in next_records if item["id"] == record["id"]), record)
+                        record_saved = True
+                self.send_json({
+                    "ok": True,
+                    "data": {
+                        "record": saved_record,
+                        "recordSaved": record_saved,
+                    },
+                })
+                return
             if route == "/api/answer-records":
-                record = validate_answer_record(payload)
+                validator = validate_pk_record if isinstance(payload, dict) and payload.get("recordType") == "pk" else validate_answer_record
+                record = validator(payload)
                 current = load_answer_records()
                 if any(item["id"] == record["id"] for item in current):
                     raise ValueError("答题记录 id 已存在。")
@@ -2040,13 +2237,13 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
         self.send_api_error("未找到这个管理接口。", HTTPStatus.NOT_FOUND)
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     global HTTP_SERVER, UPDATE_MANAGER
     stop_previous_frozen_instances()
     parser = argparse.ArgumentParser(description="文言实词训练本地服务")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--no-browser", action="store_true", help="启动后不自动打开浏览器")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     set_console_window_icon()
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)

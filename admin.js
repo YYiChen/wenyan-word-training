@@ -190,7 +190,7 @@ let adminAuthorized = false;
 let adminToken = null;
 let questionBankEtag = null;
 let leaderboardEtag = null;
-let updateStatus = { phase: "idle", available: false, currentVersion: "1.4.6", latestVersion: null, progress: 0 };
+let updateStatus = { phase: "idle", available: false, currentVersion: "1.4.8", latestVersion: null, progress: 0 };
 let updateModalOpen = false;
 let updatePromptDismissed = false;
 let updatePollTimer = null;
@@ -236,6 +236,8 @@ const normalizeLeaderboard = (entries) => (Array.isArray(entries) ? entries : []
 const normalizeAnswerRecords = (entries) => (Array.isArray(entries) ? entries : [])
   .filter((record) => record && typeof record.id === "string" && Array.isArray(record.questions))
   .map((record) => ({
+    recordType: record.recordType === "pk" ? "pk" : "solo",
+    matchId: String(record.matchId || "").trim(),
     id: record.id,
     name: String(record.name || "未命名").trim().slice(0, 20) || "未命名",
     score: Number(record.score) || 0,
@@ -248,6 +250,9 @@ const normalizeAnswerRecords = (entries) => (Array.isArray(entries) ? entries : 
     wrongCount: Math.max(0, Number(record.wrongCount) || 0),
     archived: Boolean(record.archived),
     archivedAt: Math.max(0, Number(record.archivedAt) || 0),
+    pkMode: record.pkMode === "questions" ? "questions" : record.pkMode === "time" ? "time" : null,
+    players: Array.isArray(record.players) ? record.players : [],
+    sharedQuestionIds: Array.isArray(record.sharedQuestionIds) ? record.sharedQuestionIds : [],
     questions: record.questions,
   }))
   .sort((left, right) => right.finishedAt - left.finishedAt);
@@ -1525,9 +1530,9 @@ const renderAnswerRecordsTab = () => {
       <div class="admin-card-header answer-record-admin-header">
         <div>
           <h2 class="admin-card-title">答题记录</h2>
-          <p class="admin-subtitle">答题记录可手动折叠或恢复；已折叠、未折叠分别只保留最近 1 个月内的最新 100 条，超出各自范围的记录会清除并在清除前备份。导入导出均使用本机 JSON 文件。</p>
+          <p class="admin-subtitle">答题记录可手动折叠或恢复；普通训练与双人 PK 合计只保留最近 1 个月内的最新 100 条，超出总量的旧记录会清除并在清除前备份。导入导出均使用本机 JSON 文件。</p>
         </div>
-        <span class="admin-count">未折叠 ${answerRecords.length - archivedCount} / 100 · 已折叠 ${archivedCount} / 100</span>
+        <span class="admin-count">未折叠 ${answerRecords.length - archivedCount} · 已折叠 ${archivedCount} · 合计 ${answerRecords.length} / 100</span>
       </div>
       <div class="answer-record-admin-actions">
         <div class="answer-record-admin-file-actions">
@@ -1553,11 +1558,11 @@ const renderAnswerRecordsTab = () => {
                 <input type="checkbox" data-action="select-answer-record" data-record-id="${escapeHtml(record.id)}" ${selectedAnswerRecordIds.has(record.id) ? "checked" : ""} />
               </label>
               <div class="answer-record-admin-main">
-                <strong>${escapeHtml(record.name)}</strong>
-                <span>${escapeHtml(formatRecordDate(record.finishedAt))} · 用时 ${formatSeconds(record.usedSeconds)} · ${record.completedAll ? "全部答完" : "提前结束"}</span>
+                <strong>${record.recordType === "pk" ? "双人 PK · " + (record.pkMode === "questions" ? "比题数" : "比时间") : escapeHtml(record.name)}</strong>
+                <span>${escapeHtml(formatRecordDate(record.finishedAt))} · ${record.recordType === "pk" ? "双方合计已答 " + record.answeredCount + " 题" : "用时 " + formatSeconds(record.usedSeconds) + " · " + (record.completedAll ? "全部答完" : "提前结束")}</span>
               </div>
               <div class="answer-record-admin-stats">
-                <strong>${record.score} 分</strong>
+                <strong>${record.recordType === "pk" && record.players?.length === 2 ? String(record.players[0].score) + " : " + String(record.players[1].score) : record.score + " 分"}</strong>
                 <span>答对 ${record.correctCount} · 答错 ${record.wrongCount} · 已答 ${record.answeredCount} 题</span>
               </div>
             </article>

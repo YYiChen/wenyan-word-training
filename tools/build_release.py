@@ -32,6 +32,7 @@ SOURCE_FILES = [
     "version.json",
     "免Python版使用说明.txt",
     "tools/run_server.py",
+    "tools/launcher.py",
     "tools/update_helper.py",
     "tools/update_service.py",
 ]
@@ -43,11 +44,13 @@ PUBLIC_README = """# 文言实词限时训练
 ## 运行
 
 - 源码版：`python tools/run_server.py --port 8000`，然后打开 <http://127.0.0.1:8000>。
-- Windows 免 Python 版：解压后双击 `文言实词限时训练.exe`。
+- Windows 免 Python 版：解压后双击 `文言实词限时训练.exe`，会打开一个小型启动窗口并自动打开学生答题页；不需要 BAT，也不会出现黑色控制台窗口。
 
-GitHub 仓库、源码包和 Windows release 包均不包含真实题库、审查记录或导入历史。首次运行时会在应用旁边创建空白本地数据，教师可在管理员后台导入自己的题库；排行榜、答题记录和管理员配置仍保存在用户数据目录中。学生端可以只读查看教师尚未折叠的答题记录，管理员后台可以查看、折叠和恢复全部记录；学生端不能修改、导入、导出或删除记录。
+GitHub 仓库、源码包和 Windows release 包均不包含真实题库、审查记录或导入历史。首次运行时会在应用旁边创建空白本地数据，教师可在管理员后台导入自己的题库；排行榜、答题记录和管理员配置仍保存在用户数据目录中。启动窗口只负责本地服务生命周期，学生答题页和管理员后台仍在默认浏览器中打开。
 
-学生结果通过本机服务的幂等接口保存；学生历史记录通过只读接口获取，服务端自动隐藏已折叠记录。排行榜成绩会记录教材/篇目范围、答题时长和计分规则快照，同分时先提交者优先。答题记录按折叠状态分别保留最近一个月各 100 条，自动备份保留最近 100 份且不超过 90 天。
+学生结果通过本机服务的幂等接口保存；答题记录只通过管理员授权接口读取，学生端不公开历史记录。排行榜成绩会记录教材/篇目范围、答题时长和计分规则快照，同分时先提交者优先。普通训练与双人 PK 答题记录共享最近一个月最多 100 条的总配额，自动备份保留最近 100 份且不超过 90 天。
+
+学生端可以从当前选择的教材册和篇目进入双人 PK，支持比时间（30/60/90/120 秒）或比题数（5/10/15/20/30 题）。双方使用同一题目集合、独立打乱顺序和选项，计分沿用后台当前规则；PK 记录单独保存，不计入普通排行榜。
 
 ## 检查更新
 
@@ -135,6 +138,7 @@ def run_pyinstaller(
     onefile: bool,
     data_files: list[str],
     icon_file: Path | None = None,
+    noconsole: bool = False,
 ) -> Path:
     pyinstaller = shutil.which("pyinstaller")
     if not pyinstaller:
@@ -157,7 +161,7 @@ def run_pyinstaller(
         "--paths",
         str(root / "tools"),
     ]
-    if onefile:
+    if noconsole:
         args.append("--noconsole")
     if icon_file is not None:
         args.extend(["--icon", str(icon_file)])
@@ -189,12 +193,12 @@ def build_windows_archive(
     temp_root: Path,
 ) -> Path:
     build_root = temp_root / "pyinstaller"
-    app_dir = run_pyinstaller(
+    launcher_exe = run_pyinstaller(
         root,
         build_root,
-        script=root / "tools" / "run_server.py",
+        script=root / "tools" / "launcher.py",
         name="文言实词限时训练",
-        onefile=False,
+        onefile=True,
         data_files=[
             "index.html",
             "admin.html",
@@ -209,6 +213,7 @@ def build_windows_archive(
             "assets/wenyan-word-training.ico",
         ],
         icon_file=root / "assets" / "wenyan-word-training.ico",
+        noconsole=True,
     )
     updater_exe = run_pyinstaller(
         root,
@@ -218,9 +223,11 @@ def build_windows_archive(
         onefile=True,
         data_files=[],
         icon_file=root / "assets" / "wenyan-word-training.ico",
+        noconsole=True,
     )
     package_dir = temp_root / "windows"
-    shutil.copytree(app_dir, package_dir, dirs_exist_ok=True)
+    package_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(launcher_exe, package_dir / "文言实词限时训练.exe")
     shutil.copy2(updater_exe, package_dir / "文言实词更新助手.exe")
     instructions = root / "免Python版使用说明.txt"
     if instructions.is_file():

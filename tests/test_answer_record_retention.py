@@ -13,6 +13,7 @@ from run_server import (  # noqa: E402
     ANSWER_RECORD_RETENTION_DAYS,
     prune_answer_records,
     validate_answer_records,
+    validate_pk_record,
     validate_questions,
     validate_scoring_config,
     validate_duration_seconds,
@@ -50,6 +51,56 @@ def make_record(record_id: str, finished_at: int) -> dict:
     }
 
 
+def make_pk_record(record_id: str, finished_at: int) -> dict:
+    question = make_record(f"{record_id}-question", finished_at)["questions"][0]
+    return {
+        "id": record_id,
+        "matchId": f"match-{record_id}",
+        "recordType": "pk",
+        "startedAt": finished_at - 2000,
+        "finishedAt": finished_at,
+        "pkMode": "time",
+        "timeLimitSeconds": 30,
+        "players": [
+            {
+                "playerId": "player1",
+                "score": 1,
+                "answeredCount": 1,
+                "correctCount": 1,
+                "wrongCount": 0,
+                "usedMilliseconds": 1000,
+                "usedSeconds": 1,
+                "completed": False,
+                "finishedAt": finished_at,
+                "questions": [question],
+            },
+            {
+                "playerId": "player2",
+                "score": 0,
+                "answeredCount": 0,
+                "correctCount": 0,
+                "wrongCount": 0,
+                "usedMilliseconds": 2000,
+                "usedSeconds": 2,
+                "completed": False,
+                "finishedAt": finished_at,
+                "questions": [],
+            },
+        ],
+        "sharedQuestionIds": [question["id"]],
+        "scoring": {
+            "mode": "fixed",
+            "baseCorrect": 1,
+            "baseWrongPenalty": 1,
+            "correctStreakAfter": 2,
+            "correctStreakScore": 2,
+            "wrongStreakAfter": 2,
+            "wrongStreakPenalty": 2,
+        },
+        "context": {},
+    }
+
+
 class AnswerRecordRetentionTests(unittest.TestCase):
     def test_keeps_recent_records_and_caps_count(self) -> None:
         now_ms = 1_800_000_000_000
@@ -79,7 +130,18 @@ class AnswerRecordRetentionTests(unittest.TestCase):
 
         self.assertEqual([record["id"] for record in retained], ["cutoff-record"])
 
-    def test_folded_and_unfolded_records_have_independent_caps(self) -> None:
+    def test_solo_and_pk_records_share_one_total_cap(self) -> None:
+        now_ms = 1_800_000_000_000
+        records = [make_record(f"solo-{index}", now_ms - index * 1000) for index in range(80)]
+        records.extend(make_pk_record(f"pk-{index}", now_ms - (index + 80) * 1000) for index in range(30))
+
+        retained = prune_answer_records(validate_answer_records(records), now_ms=now_ms)
+
+        self.assertEqual(len(retained), ANSWER_RECORD_MAX_COUNT)
+        self.assertEqual(sum(record["recordType"] == "solo" for record in retained), 80)
+        self.assertEqual(sum(record["recordType"] == "pk" for record in retained), 20)
+
+    def test_folded_and_unfolded_records_share_one_cap(self) -> None:
         now_ms = 1_800_000_000_000
         records = []
         for index in range(105):
@@ -93,8 +155,9 @@ class AnswerRecordRetentionTests(unittest.TestCase):
 
         retained = prune_answer_records(validate_answer_records(records), now_ms=now_ms)
 
+        self.assertEqual(len(retained), ANSWER_RECORD_MAX_COUNT)
         self.assertEqual(sum(not record["archived"] for record in retained), ANSWER_RECORD_MAX_COUNT)
-        self.assertEqual(sum(record["archived"] for record in retained), ANSWER_RECORD_MAX_COUNT)
+        self.assertEqual(sum(record["archived"] for record in retained), 0)
         self.assertNotIn("unfolded-104", {record["id"] for record in retained})
         self.assertNotIn("folded-104", {record["id"] for record in retained})
 
