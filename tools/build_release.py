@@ -29,6 +29,14 @@ RUNTIME_WEB_FILES = [
     "student-records.js",
     "student-quiz.js",
     "student-pk.js",
+    "admin-guide-data.js",
+    "admin-shared.js",
+    "admin-auth.js",
+    "admin-questions.js",
+    "admin-reviews.js",
+    "admin-records.js",
+    "admin-update.js",
+    "admin-settings.js",
     "pk-finish-effects.css",
     "pk-finish-effects.js",
     "style.css",
@@ -79,7 +87,14 @@ GitHub 仓库中的 `public-data/questions.json` 只是一份公开示例题库�
 使用 `python tools/build_release.py --output <目录>` 默认生成不含题库的源码包、Windows 更新包和 `SHA256SUMS.txt`；也可以使用 `--github-only` 或 `--source-only` 单独生成。发布前请检查 ZIP 条目和校验和，并按 SemVer 创建稳定 Release。
 """
 FORBIDDEN_PARTS = {"data", "release", ".git", "__pycache__"}
-FORBIDDEN_TOKENS = ("questions", "question-reviews", "question_bank", "question-bank", "expanded_question_specs")
+FORBIDDEN_FILE_NAMES = {
+    "questions.json",
+    "question-reviews.json",
+    "question-bank-history.json",
+    "question_bank.json",
+    "expanded_question_specs.json",
+}
+FORBIDDEN_TOKENS = ("question_bank", "question-bank", "expanded_question_specs")
 
 
 def parse_args() -> argparse.Namespace:
@@ -97,7 +112,11 @@ def safe_relative(path: str) -> str:
     if not parts or PurePosixPath(normalized).is_absolute() or ".." in parts:
         raise ValueError(f"不安全的发布路径：{path}")
     lowered = normalized.lower()
-    if parts[0].lower() in FORBIDDEN_PARTS or any(token in lowered for token in FORBIDDEN_TOKENS):
+    if (
+        parts[0].lower() in FORBIDDEN_PARTS
+        or PurePosixPath(normalized).name.lower() in FORBIDDEN_FILE_NAMES
+        or any(token in lowered for token in FORBIDDEN_TOKENS)
+    ):
         raise ValueError(f"发布包包含禁止路径：{path}")
     return normalized
 
