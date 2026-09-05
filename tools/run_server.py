@@ -49,6 +49,9 @@ else:
     ROOT = Path(__file__).resolve().parents[1]
     DATA_DIR = ROOT / "data"
 QUESTIONS_PATH = DATA_DIR / "questions.json"
+# GitHub 源码仓库附带的公开示例题库。它只用于新克隆项目的首次初始化，
+# 不参与现有本机题库的覆盖，也不会被免 Python 发布包打包进去。
+PUBLIC_QUESTION_BANK_PATH = ROOT / "public-data" / "questions.json"
 QUESTION_REVIEWS_PATH = DATA_DIR / "question-reviews.json"
 QUESTION_BANK_HISTORY_PATH = DATA_DIR / "question-bank-history.json"
 LEGACY_LEADERBOARD_PATH = DATA_DIR / "leaderboard.json"
@@ -1629,7 +1632,10 @@ def prune_backups(path: Path, backup_dir: Path) -> None:
 def ensure_question_bank() -> None:
     try:
         if not QUESTIONS_PATH.exists():
-            backup_and_write(QUESTIONS_PATH, empty_question_bank())
+            initial_bank = empty_question_bank()
+            if PUBLIC_QUESTION_BANK_PATH.exists():
+                initial_bank = validate_questions(read_json(PUBLIC_QUESTION_BANK_PATH))
+            backup_and_write(QUESTIONS_PATH, initial_bank)
             return
         raw = read_json(QUESTIONS_PATH)
         normalized = validate_questions(raw)

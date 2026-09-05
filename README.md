@@ -4,7 +4,7 @@
 
 项目采用“浏览器答题页＋本地服务＋文件题库”的轻量结构，适合教室电脑直接运行，也方便后续继续补充教材、文章和题目。当前正式范围为统编版必修上、下册与选择性必修上、中、下册的课内单句实词释义题。
 
-本项目的题库属于教师在本机维护的运行数据，不随公开源码和发布包分发。公开仓库保持代码与空白数据目录；首次启动时会自动创建空白题库，教师可以在管理后台导入自己的题库。题目仍以单字或最小可释义词单位为考点，候选题需经教师复核后才进入学生答题。
+本项目的完整题库属于教师在本机维护的运行数据，不随公开发布包分发。公开 GitHub 仓库额外提供 `public-data/questions.json` 作为体验用示例题库：当前每篇文章保留 1-3 道已复核题目，共 87 道，不代表完整教师题库。首次从 GitHub 源码运行时会将这份示例题库复制到本机 `data/questions.json`；教师也可以随后在管理后台导入自己的完整题库。题目仍以单字或最小可释义词单位为考点，候选题需经教师复核后才进入学生答题。
 
 ## 本地运行
 
@@ -16,7 +16,7 @@
 
 如果双击启动文件后提示没有找到 Python，再使用下面的手动方式：
 
-由于网页需要通过本地服务读写题库和排行榜，不能直接双击 `index.html`。请在项目根目录启动；如果 `data/questions.json` 不存在，服务会自动创建空白题库：
+由于网页需要通过本地服务读写题库和排行榜，不能直接双击 `index.html`。请在项目根目录启动；如果从 GitHub 源码运行且 `data/questions.json` 不存在，服务会自动复制公开示例题库；免 Python 发布包不内置示例题库，首次启动时仍会创建空白题库：
 
 ```powershell
 python tools/run_server.py --port 8000
@@ -69,7 +69,8 @@ python tools/run_server.py --port 8000
 
 ## 题库文件与公开分发边界
 
-- `data/questions.json`：网页实际读取的标准题库。它是本机私有运行数据，首次启动时会自动生成空白文件；教师可通过后台导入包含题型、教材册、文章和题目的 JSON。公开 GitHub 仓库和 release 包不包含真实题库
+- `data/questions.json`：网页实际读取的标准题库。它是本机运行数据；从 GitHub 源码首次启动时会由 `public-data/questions.json` 初始化为公开示例题库，免 Python release 首次启动时为空白。教师可通过后台导入包含题型、教材册、文章和题目的完整 JSON
+- `public-data/questions.json`：GitHub 公开示例题库，按每篇文章 1-3 道已复核题目整理，仅用于体验和联调，不是完整教师题库；需要完整题库请联系原作者
 - 题目若无法定位 `word` 在 `sentence` 中的划线位置，会保留原题并标记 `reviewStatus: "abnormal"`；学生端自动跳过，老师可在题库管理中修复后恢复
 - `data/expanded_question_specs.json`、`data/questions-complex-archive.json`：本机题库制作或历史归档素材，不提交到公开仓库，也不放入 release
 - `%LOCALAPPDATA%/WenyanQuiz/leaderboard.json`：所有浏览器和应用版本共用的本机排行榜；旧版本的 `data/leaderboard.json` 只用于首次启动时迁移
@@ -81,7 +82,11 @@ python tools/run_server.py --port 8000
 - `%LOCALAPPDATA%/WenyanQuiz/backups/`：排行榜每次保存前自动生成的旧文件备份
 - `tools/run_server.py`：本地服务，负责提供网页和持久化保存接口；学生结果通过幂等的 `/api/quiz-results` 提交，不使用管理员写接口；答题记录只通过管理员授权接口读取，学生端不公开历史记录
 
-GitHub 仓库、公开源码 ZIP、公开 Windows release ZIP 都不包含真实题库、审查记录、题库导入历史或题库制作素材。发布包可以直接启动，但初始状态没有可答题目；管理员导入题库后，题库会固化保存在本机，不会因升级代码包而被覆盖。若需要给老师私发含题库的安装包，应在本机单独生成教师包；教师包不提交 Git，也不上传 GitHub 或公开 Release。
+GitHub 仓库只包含 `public-data/questions.json` 这份每篇文章 1-3 题的公开示例，不包含完整教师题库、审查记录、题库导入历史或题库制作素材；公开源码 ZIP 和公开 Windows release ZIP 仍不携带任何题库，首次运行后由管理员导入。完整本机题库不会因升级代码包而被覆盖。若需要给老师私发含完整题库的安装包，应在本机单独生成教师包；教师包不提交 Git，也不上传 GitHub 或公开 Release。
+
+## 联系原作者
+
+如需获取完整题库或技术支持，请联系：`yyyyyc001@gmail.com`
 
 ## 发布版本
 
