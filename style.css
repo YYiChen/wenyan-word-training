@@ -1281,11 +1281,25 @@ h2 {
 }
 
 .leaderboard-name {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
   overflow: hidden;
   color: var(--ink);
   font-weight: 800;
+}
+
+.leaderboard-name strong,
+.leaderboard-name small {
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.leaderboard-name small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .leaderboard-score {

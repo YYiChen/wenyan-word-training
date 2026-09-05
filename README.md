@@ -12,7 +12,7 @@
 
 使用“免 Python 发布包”时，直接解压并双击 `文言实词限时训练.exe` 即可，无需安装 Python；关闭 EXE 打开的黑色窗口即可停止服务。源代码项目则仍需要 Python 来运行 `tools/run_server.py`。
 
-当前发布版本统一按版本号归档在 `release/`；最新版本为 `release/v1.4.4`。当前版本的源码包和 Windows 包均为不含题库的代码包，旧版归档仅供历史参考；以后升级时新增版本号目录，不覆盖旧版本。
+当前发布版本统一按版本号归档在 `release/`；最新版本为 `release/v1.4.5`。当前版本的源码包和 Windows 包均为不含题库的代码包，旧版归档仅供历史参考；以后升级时新增版本号目录，不覆盖旧版本。
 
 如果双击启动文件后提示没有找到 Python，再使用下面的手动方式：
 
@@ -62,8 +62,8 @@ python tools/run_server.py --port 8000
 - 每局随机打乱题目和选项，答题页面不显示总题数或答题比例
 - 答题字号可在答题页调节至最大 200%
 - 在规定时间内答完全部题目时，结果页会提示“所有题目已答完”
-- 结果页可填写名字并加入排行榜，排行榜写入 `%LOCALAPPDATA%/WenyanQuiz/leaderboard.json`
-- 同一台电脑上通过本网站答题的学生，共用同一份排行榜；关闭或重开浏览器后成绩仍保留
+- 结果页可填写名字并加入排行榜，排行榜写入 `%LOCALAPPDATA%/WenyanQuiz/leaderboard.json`；成绩同时保存教材/篇目范围、答题时长和计分规则快照，同分时先提交者优先
+- 同一台电脑上通过本网站答题的学生，共用同一份排行榜；关闭或重开浏览器后成绩仍保留。完整答题记录只在管理员后台查看，学生端不提供历史记录入口
 - 当前没有账号、云端同步或跨电脑排行榜
 
 ## 题库文件与公开分发边界
@@ -73,12 +73,12 @@ python tools/run_server.py --port 8000
 - `data/expanded_question_specs.json`、`data/questions-complex-archive.json`：本机题库制作或历史归档素材，不提交到公开仓库，也不放入 release
 - `%LOCALAPPDATA%/WenyanQuiz/leaderboard.json`：所有浏览器和应用版本共用的本机排行榜；旧版本的 `data/leaderboard.json` 只用于首次启动时迁移
 - `%LOCALAPPDATA%/WenyanQuiz/answer-records.json`：所有浏览器和应用版本共用的本机答题记录；已折叠与未折叠分别只保留最近 1 个月内的最新 100 条，应用升级不会覆盖
-- `%LOCALAPPDATA%/WenyanQuiz/answer-records-backups/`：答题记录保存、折叠、恢复或自动清理前的自动备份
+- `%LOCALAPPDATA%/WenyanQuiz/answer-records-backups/`：答题记录保存、折叠、恢复或自动清理前的自动备份；自动轮转保留最近 100 份且不超过 90 天
 - `data/question-bank-history.json`：本机题库导入、导出和撤销导入的只读历史；导入记录不能删除或修改，撤销通过追加事件完成
 - `data/question-reviews.json`：本机教师审查状态、建议答案、选项问题和审查备注
 - `data/backups/`：后台每次保存前自动生成的旧文件备份
 - `%LOCALAPPDATA%/WenyanQuiz/backups/`：排行榜每次保存前自动生成的旧文件备份
-- `tools/run_server.py`：本地服务，负责提供网页和持久化保存接口
+- `tools/run_server.py`：本地服务，负责提供网页和持久化保存接口；学生结果通过幂等的 `/api/quiz-results` 提交，不使用管理员写接口
 
 GitHub 仓库、源码 ZIP、Windows release ZIP 都不包含真实题库、审查记录、题库导入历史或题库制作素材。发布包可以直接启动，但初始状态没有可答题目；管理员导入题库后，题库会固化保存在本机，不会因升级代码包而被覆盖。
 
@@ -96,5 +96,6 @@ GitHub 仓库、源码 ZIP、Windows release ZIP 都不包含真实题库、审�
 - `release/v1.4.2/wenyan-word-training-v1.4.2-source.zip`、`release/v1.4.2/wenyan-word-training-v1.4.2-windows.zip`：加入可切换计分机制、答题时长配置、异常划线题隔离、答题记录自动清理和学生端一次性答题反馈动效修复
 - `release/v1.4.3/wenyan-word-training-v1.4.3-windows.zip`：GitHub 更新包，不含题库，仅用于已有安装的程序更新
 - `release/v1.4.4/`：答题记录按已折叠/未折叠分别保留最近一个月各100条；题库管理新增只读导入/导出历史和可二次确认的导入撤销；源码包和 Windows 包均不包含题库，首次使用时由管理员在本机导入
+- `release/v1.4.5/`：修复学生结果保存、空白题库首次导入、答题局异步竞态、绝对计时、管理员并发保存和答题记录备份轮转；学生端不再读取完整答题记录，发布包仍不包含题库
 
 题库 JSON 的完整格式、可直接复制的模版和当前全部目录，可以在后台“题库管理”区域下载唯一文件 `JSON模版导入说明.md`。文件会列出当前全部题型、教材册和篇目 ID；`id` 是程序识别用的本机编号，`label`/`title` 是页面显示名称，题目必须用 `type` 引用题型 ID、用 `articleId` 引用篇目 ID。题目源数据采用“文章归属、目标词、原句、正确义项、固定干扰项、解析、来源和审核状态”的结构。一道题只保存一个考点词：同一句要考两个不同词时，建立两条题目记录并分别填写 `word`、`targetOccurrence`、`targetStart`、选项和解析；同一个词在句中出现多次时，用 `targetOccurrence` 指明第几处，后台选词会自动写入 `targetStart`，服务端会校验两者一致。扩容候选题的来源包括课文注释、文言实词例句和人工整理；正式使用前应依据统编版课文、课下注释及人民教育出版社《高中语文学习任务导引》参考答案逐题复核。后续增加题库时，可以让其他 AI 按该文件制作 JSON，再使用“新增导入题库（合并）”追加；系统会按内容去重，不能只按 ID 判断重复。

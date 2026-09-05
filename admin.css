@@ -1658,6 +1658,18 @@
   min-height: 37px;
 }
 
+.leaderboard-entry-context {
+  display: block;
+  max-width: 260px;
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .leaderboard-table .editor-empty {
   min-height: 0;
   padding: 32px 18px;

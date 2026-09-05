@@ -189,7 +189,8 @@ let loginError = "";
 let adminAuthorized = false;
 let adminToken = null;
 let questionBankEtag = null;
-let updateStatus = { phase: "idle", available: false, currentVersion: "1.4.4", latestVersion: null, progress: 0 };
+let leaderboardEtag = null;
+let updateStatus = { phase: "idle", available: false, currentVersion: "1.4.5", latestVersion: null, progress: 0 };
 let updateModalOpen = false;
 let updatePromptDismissed = false;
 let updatePollTimer = null;
@@ -221,13 +222,16 @@ const escapeHtml = (value) => String(value ?? "")
 
 const normalizeLeaderboard = (entries) => (Array.isArray(entries) ? entries : [])
   .filter((entry) => entry && typeof entry.name === "string" && Number.isFinite(Number(entry.score)))
-  .map((entry) => ({
+  .map((entry, index) => ({
+    id: String(entry.id || `legacy-score-${Number(entry.createdAt) || 0}-${index}`).trim(),
+    recordId: entry.recordId ? String(entry.recordId).trim() : "",
     name: entry.name.trim().slice(0, 20),
     score: Number(entry.score),
     createdAt: Number(entry.createdAt) || 0,
+    context: entry.context && typeof entry.context === "object" ? entry.context : null,
   }))
   .filter((entry) => entry.name)
-  .sort((left, right) => right.score - left.score || right.createdAt - left.createdAt);
+  .sort((left, right) => right.score - left.score || left.createdAt - right.createdAt || left.id.localeCompare(right.id));
 
 const normalizeAnswerRecords = (entries) => (Array.isArray(entries) ? entries : [])
   .filter((record) => record && typeof record.id === "string" && Array.isArray(record.questions))
@@ -637,6 +641,7 @@ const fetchJson = async (url) => {
   }
   if (!response.ok) throw new Error(payload?.error || `读取失败（${response.status}）。`);
   if (url === API.questions) questionBankEtag = response.headers.get("ETag") || null;
+  if (url === API.leaderboard) leaderboardEtag = response.headers.get("ETag") || null;
   return payload;
 };
 
@@ -669,6 +674,7 @@ const putJson = async (url, value) => {
     ...(adminToken ? { "X-Wenyan-Admin-Token": adminToken } : {}),
   };
   if (url === API.questions && questionBankEtag) headers["If-Match"] = questionBankEtag;
+  if (url === API.leaderboard && leaderboardEtag) headers["If-Match"] = leaderboardEtag;
   const response = await fetch(url, {
     method: "PUT",
     headers,
@@ -683,6 +689,7 @@ const putJson = async (url, value) => {
   }
   if (!response.ok || !payload?.ok) throw new Error(payload?.error || "保存失败。");
   if (url === API.questions) questionBankEtag = response.headers.get("ETag") || questionBankEtag;
+  if (url === API.leaderboard) leaderboardEtag = response.headers.get("ETag") || leaderboardEtag;
   return payload.data;
 };
 
@@ -1459,6 +1466,14 @@ const renderScoringTab = () => {
   `;
 };
 
+const formatLeaderboardContextAdmin = (context) => {
+  if (!context || typeof context !== "object") return "历史成绩 · 规则未知";
+  const volumes = Array.isArray(context.volumes) ? context.volumes.map((item) => item?.label).filter(Boolean) : [];
+  const articles = Array.isArray(context.articles) ? context.articles.map((item) => item?.label).filter(Boolean) : [];
+  const duration = Number(context.durationSeconds) > 0 ? `${Math.floor(Number(context.durationSeconds) / 60).toString().padStart(2, "0")}:${(Number(context.durationSeconds) % 60).toString().padStart(2, "0")}` : "未知";
+  return `${volumes.join("、") || "历史范围未知"}${articles.length ? ` · ${articles.length}篇` : ""} · ${duration} · ${context.scoring?.mode === "streak" ? "连续表现" : "固定计分"}`;
+};
+
 const renderLeaderboardTab = () => `
   <section class="leaderboard-layout">
     <section class="admin-card leaderboard-card-admin">
@@ -1468,9 +1483,9 @@ const renderLeaderboardTab = () => `
           <thead><tr><th>排名</th><th>姓名</th><th>分数</th><th>操作</th></tr></thead>
           <tbody>
             ${leaderboard.length ? leaderboard.map((entry, index) => `
-              <tr data-entry-index="${index}" data-created-at="${entry.createdAt}">
+              <tr data-entry-index="${index}" data-entry-id="${escapeHtml(entry.id || "")}" data-record-id="${escapeHtml(entry.recordId || "")}" data-created-at="${entry.createdAt}" data-context="${escapeHtml(JSON.stringify(entry.context || {}))}">
                 <td>${index + 1}</td>
-                <td><input class="admin-input" name="entry-name-${index}" value="${escapeHtml(entry.name)}" maxlength="20" required /></td>
+                <td><input class="admin-input" name="entry-name-${index}" value="${escapeHtml(entry.name)}" maxlength="20" required /><small class="leaderboard-entry-context">${escapeHtml(formatLeaderboardContextAdmin(entry.context))}</small></td>
                 <td><input class="admin-input" name="entry-score-${index}" type="number" value="${entry.score}" required /></td>
                 <td><button class="admin-danger entry-delete" type="button" data-action="delete-entry" data-entry-index="${index}">删除</button></td>
               </tr>
@@ -2352,9 +2367,12 @@ const saveReviewForm = async (form) => {
 const readLeaderboardForm = (form) => [...form.querySelectorAll("tbody tr[data-entry-index]")].map((row) => {
   const index = Number(row.dataset.entryIndex);
   return {
+    id: row.dataset.entryId || undefined,
+    recordId: row.dataset.recordId || undefined,
     name: form.elements[`entry-name-${index}`].value.trim(),
     score: Number(form.elements[`entry-score-${index}`].value),
     createdAt: Number(row.dataset.createdAt) || Date.now(),
+    context: row.dataset.context ? JSON.parse(row.dataset.context) : undefined,
   };
 });
 
@@ -2969,13 +2987,13 @@ const load = async () => {
       fetchJson(API.answerRecords),
       fetchJson(API.questionBankHistory),
     ]);
-    if (!Array.isArray(questionBank.questions) || !questionBank.questions.length) throw new Error("题库中没有可编辑的题目。");
+    if (!Array.isArray(questionBank.questions)) throw new Error("题库格式无效：缺少 questions 数组。");
     bank = questionBank;
     leaderboard = normalizeLeaderboard(leaderboardData);
     reviews = normalizeReviews(questionReviews);
     answerRecords = normalizeAnswerRecords(answerRecordData);
     questionBankHistory = normalizeQuestionBankHistory(questionBankHistoryData);
-    selectedQuestionId = bank.questions[0].id;
+    selectedQuestionId = bank.questions[0]?.id || null;
     render();
     startUpdateMonitoring();
   } catch (error) {

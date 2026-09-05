@@ -35,6 +35,10 @@ from urllib.parse import urlparse
 from update_service import UpdateManager
 
 
+APP_NAME = "wenyan-word-training"
+APP_VERSION = "1.4.5"
+
+
 # 开发时，网页与题库数据都在项目根目录；封装后，网页资源在 PyInstaller
 # 内部目录，题库和审查记录在 EXE 旁边的 data 文件夹。
 # 排行榜和完整答题记录使用稳定的 Windows 用户数据目录，避免升级压缩包时被覆盖。
@@ -70,6 +74,7 @@ ANSWER_RECORDS_PATH = USER_DATA_DIR / "answer-records.json"
 ANSWER_RECORDS_BACKUP_DIR = USER_DATA_DIR / "answer-records-backups"
 ADMIN_SETTINGS_PATH = USER_DATA_DIR / "admin-settings.json"
 ADMIN_SETTINGS_BACKUP_DIR = USER_DATA_DIR / "backups"
+PID_PATH = USER_DATA_DIR / "service.pid"
 DEFAULT_ADMIN_PASSWORD = "pc123456"
 # 只保存检修密码的哈希，不在网页、配置接口或普通管理员密码页面中返回。
 SUPER_ADMIN_PASSWORD_HASH = "067cca8c5ce5ecd2830907acf8b4b1be805e5d62a3e700d4b2e701b732491cba"
@@ -99,6 +104,8 @@ MAX_STREAK_THRESHOLD = 5
 ANSWER_RECORD_RETENTION_DAYS = 30
 # Folded and unfolded records each have their own retention cap.
 ANSWER_RECORD_MAX_COUNT = 100
+BACKUP_MAX_COUNT = 100
+BACKUP_RETENTION_DAYS = 90
 
 
 def stop_previous_frozen_instances() -> None:
@@ -147,6 +154,19 @@ def stop_previous_frozen_instances() -> None:
                 time.sleep(0.25)
     except OSError as error:
         print(f"检查旧服务失败，将继续尝试启动：{error}")
+
+
+def write_service_pid() -> None:
+    USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    PID_PATH.write_text(str(os.getpid()), encoding="ascii")
+
+
+def remove_service_pid() -> None:
+    try:
+        if PID_PATH.read_text(encoding="ascii").strip() == str(os.getpid()):
+            PID_PATH.unlink(missing_ok=True)
+    except (OSError, UnicodeDecodeError):
+        pass
 
 
 def set_console_window_icon() -> None:
@@ -765,11 +785,47 @@ def validate_questions(payload: Any) -> dict[str, Any]:
     return payload
 
 
+def validate_leaderboard_context(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {"volumes": [], "articles": [], "durationSeconds": 0, "scoring": None}
+
+    def clean_refs(value: Any, limit: int, label: str) -> list[dict[str, str]]:
+        if not isinstance(value, list):
+            return []
+        result: list[dict[str, str]] = []
+        for item in value[:limit]:
+            if isinstance(item, dict):
+                item_id = str(item.get("id", "")).strip()[:120]
+                item_label = str(item.get("label", item.get("title", ""))).strip()[:120]
+            else:
+                item_id = ""
+                item_label = str(item).strip()[:120]
+            if item_label:
+                result.append({"id": item_id, "label": item_label})
+        return result
+
+    duration = payload.get("durationSeconds", 0)
+    if isinstance(duration, bool) or not isinstance(duration, int) or not 0 <= duration <= 3600:
+        duration = 0
+    scoring = None
+    if isinstance(payload.get("scoring"), dict):
+        try:
+            scoring = validate_scoring_config({"scoring": payload["scoring"]})
+        except ValueError:
+            scoring = None
+    return {
+        "volumes": clean_refs(payload.get("volumes"), 50, "教材册"),
+        "articles": clean_refs(payload.get("articles"), 200, "篇目"),
+        "durationSeconds": duration,
+        "scoring": scoring,
+    }
+
+
 def validate_leaderboard(payload: Any) -> list[dict[str, Any]]:
     if not isinstance(payload, list):
         raise ValueError("排行榜必须是数组。")
     clean: list[dict[str, Any]] = []
-    for entry in payload:
+    for index, entry in enumerate(payload):
         if not isinstance(entry, dict):
             raise ValueError("排行榜中存在无效记录。")
         name = str(entry.get("name", "")).strip()[:20]
@@ -780,8 +836,19 @@ def validate_leaderboard(payload: Any) -> list[dict[str, Any]]:
             created_at = int(entry.get("createdAt", 0))
         except (TypeError, ValueError) as error:
             raise ValueError("排行榜分数或时间格式不正确。") from error
-        clean.append({"name": name, "score": score, "createdAt": max(created_at, 0)})
-    return sorted(clean, key=lambda item: (-item["score"], -item["createdAt"]))
+        entry_id = str(entry.get("id", "")).strip()[:120]
+        if not entry_id:
+            entry_id = f"legacy-score-{max(created_at, 0)}-{index}"
+        record_id = str(entry.get("recordId", "")).strip()[:120]
+        clean.append({
+            "id": entry_id,
+            "recordId": record_id or None,
+            "name": name,
+            "score": score,
+            "createdAt": max(created_at, 0),
+            "context": validate_leaderboard_context(entry.get("context")),
+        })
+    return sorted(clean, key=lambda item: (-item["score"], item["createdAt"], item["id"]))
 
 
 def validate_answer_record_question(payload: Any, position: int) -> dict[str, Any]:
@@ -863,12 +930,16 @@ def validate_answer_record_question(payload: Any, position: int) -> dict[str, An
         "correctStreak": correct_streak,
         "wrongStreak": wrong_streak,
         "explanation": str(payload["explanation"]).strip()[:1000],
+        "quizIndex": payload.get("quizIndex"),
     }
     if clean["targetStart"] is not None:
         if isinstance(clean["targetStart"], bool) or not isinstance(clean["targetStart"], int) or clean["targetStart"] < 0:
             raise ValueError(f"答题记录第 {position} 道题的 targetStart 格式不正确。")
     if isinstance(clean["targetOccurrence"], bool) or not isinstance(clean["targetOccurrence"], int) or clean["targetOccurrence"] < 1:
         raise ValueError(f"答题记录第 {position} 道题的 targetOccurrence 格式不正确。")
+    if clean["quizIndex"] is not None:
+        if isinstance(clean["quizIndex"], bool) or not isinstance(clean["quizIndex"], int) or clean["quizIndex"] < 0:
+            raise ValueError(f"答题记录第 {position} 道题的 quizIndex 格式不正确。")
     return clean
 
 
@@ -901,8 +972,8 @@ def validate_answer_record(payload: Any) -> dict[str, Any]:
     if not archived:
         archived_at = 0
     questions = payload.get("questions")
-    if not isinstance(questions, list) or not questions or len(questions) > 1000:
-        raise ValueError("答题记录必须包含 1-1000 道题的快照。")
+    if not isinstance(questions, list) or len(questions) > 1000:
+        raise ValueError("答题记录必须包含 0-1000 道题的快照。")
     scoring = None
     if payload.get("scoring") is not None:
         scoring = validate_scoring_config({"scoring": payload.get("scoring")})
@@ -924,6 +995,7 @@ def validate_answer_record(payload: Any) -> dict[str, Any]:
         "archived": archived,
         "archivedAt": archived_at,
         "scoring": scoring,
+        "context": validate_leaderboard_context(payload.get("context")),
         "questions": clean_questions,
     }
 
@@ -1381,9 +1453,32 @@ def backup_and_write(path: Path, payload: Any, backup_dir: Path = BACKUP_DIR) ->
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temp_name, path)
+        prune_backups(path, backup_dir)
     finally:
         if os.path.exists(temp_name):
             os.unlink(temp_name)
+
+
+def prune_backups(path: Path, backup_dir: Path) -> None:
+    """Keep automatic backups recoverable without allowing unbounded growth."""
+    try:
+        candidates = sorted(
+            backup_dir.glob(f"{path.stem}-*.json"),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )
+        cutoff = time.time() - BACKUP_RETENTION_DAYS * 24 * 60 * 60
+        for index, candidate in enumerate(candidates):
+            if index < BACKUP_MAX_COUNT and candidate.stat().st_mtime >= cutoff:
+                continue
+            try:
+                candidate.unlink()
+            except OSError:
+                pass
+    except OSError:
+        # A backup cleanup failure must not make the newly written data look
+        # like it failed to save.
+        return
 
 
 def ensure_question_bank() -> None:
@@ -1435,6 +1530,12 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         print(f"[{self.log_date_time_string()}] {format % args}")
 
+    def end_headers(self) -> None:
+        # The app is updated by replacing local files. Prevent a browser from
+        # keeping an old entry HTML page that still points at old JS/CSS.
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
     def send_json(
         self,
         payload: Any,
@@ -1444,7 +1545,6 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
         raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(raw)))
         for name, value in (extra_headers or {}).items():
             self.send_header(name, value)
@@ -1476,7 +1576,12 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
     def do_GET(self) -> None:
         route = urlparse(self.path).path
         if route == "/api/health":
-            self.send_json({"ok": True})
+            self.send_json({
+                "ok": True,
+                "app": APP_NAME,
+                "version": APP_VERSION,
+                "apiVersion": 1,
+            })
             return
         if route == "/api/update-status":
             if UPDATE_MANAGER is None:
@@ -1493,11 +1598,14 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
             return
         if route == "/api/leaderboard":
             try:
-                self.send_json(validate_leaderboard(read_json(LEADERBOARD_PATH, [])))
+                payload = validate_leaderboard(read_json(LEADERBOARD_PATH, []))
+                self.send_json(payload, extra_headers={"ETag": make_json_etag(payload)})
             except (OSError, json.JSONDecodeError, ValueError) as error:
                 self.send_api_error(f"读取排行榜失败：{error}", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
         if route == "/api/answer-records":
+            if not self.require_admin():
+                return
             try:
                 self.send_json(load_answer_records(persist_pruned=True))
             except (OSError, json.JSONDecodeError, ValueError) as error:
@@ -1533,6 +1641,11 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
     def do_POST(self) -> None:
         route = urlparse(self.path).path
         try:
+            if route == "/api/shutdown":
+                self.send_json({"ok": True})
+                if HTTP_SERVER is not None:
+                    Timer(0.1, HTTP_SERVER.shutdown).start()
+                return
             if route == "/api/admin-logout":
                 if not self.require_admin():
                     return
@@ -1542,6 +1655,7 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
             if route in {
                 "/api/update-check",
                 "/api/update-apply",
+                "/api/answer-records",
                 "/api/answer-records/import",
                 "/api/question-bank-import",
                 "/api/question-bank-history",
@@ -1655,6 +1769,77 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
                     extra_headers={"ETag": make_json_etag(result_bank)},
                 )
                 return
+            if route == "/api/quiz-results":
+                if not isinstance(payload, dict):
+                    raise ValueError("答题结果请求必须是对象。")
+                raw_record = payload.get("record")
+                if not isinstance(raw_record, dict):
+                    raise ValueError("答题结果请求缺少 record 对象。")
+                name = str(payload.get("name", "")).strip()[:20]
+                add_to_leaderboard = bool(payload.get("addToLeaderboard", bool(name))) and bool(name)
+                record = validate_answer_record({**raw_record, "name": name or "未命名"})
+                with WRITE_LOCK:
+                    current_records = load_answer_records()
+                    record_changed = False
+                    existing_index = next(
+                        (index for index, item in enumerate(current_records) if item["id"] == record["id"]),
+                        None,
+                    )
+                    if existing_index is None:
+                        next_records = prune_answer_records(validate_answer_records([*current_records, record]))
+                        record_changed = True
+                    else:
+                        existing = current_records[existing_index]
+                        # An anonymous retry must not erase a name that was already
+                        # attached to this idempotent result.
+                        requested_name = name or existing["name"]
+                        if existing["name"] != requested_name:
+                            current_records[existing_index] = {**existing, "name": requested_name}
+                            record_changed = True
+                        next_records = prune_answer_records(validate_answer_records(current_records))
+
+                    current_leaderboard = validate_leaderboard(read_json(LEADERBOARD_PATH, []))
+                    next_leaderboard = current_leaderboard
+                    if add_to_leaderboard:
+                        leaderboard_entry_id = f"score-{record['id']}"
+                        entry = {
+                            "id": leaderboard_entry_id,
+                            "recordId": record["id"],
+                            "name": name,
+                            "score": record["score"],
+                            "createdAt": record["finishedAt"] or int(time.time() * 1000),
+                            "context": record["context"],
+                        }
+                        matching_index = next(
+                            (
+                                index for index, item in enumerate(current_leaderboard)
+                                if item.get("recordId") == record["id"] or item.get("id") == leaderboard_entry_id
+                            ),
+                            None,
+                        )
+                        if matching_index is None:
+                            next_leaderboard = validate_leaderboard([*current_leaderboard, entry])
+                        else:
+                            merged = {**current_leaderboard[matching_index], **entry}
+                            next_leaderboard = validate_leaderboard([
+                                merged if index == matching_index else item
+                                for index, item in enumerate(current_leaderboard)
+                            ])
+
+                    if record_changed:
+                        backup_and_write(ANSWER_RECORDS_PATH, next_records, ANSWER_RECORDS_BACKUP_DIR)
+                    if next_leaderboard != current_leaderboard:
+                        backup_and_write(LEADERBOARD_PATH, next_leaderboard, LEADERBOARD_BACKUP_DIR)
+                    saved_record = next((item for item in next_records if item["id"] == record["id"]), record)
+                self.send_json({
+                    "ok": True,
+                    "data": {
+                        "record": saved_record,
+                        "leaderboard": next_leaderboard,
+                        "leaderboardSaved": add_to_leaderboard,
+                    },
+                })
+                return
             if route == "/api/answer-records":
                 record = validate_answer_record(payload)
                 current = load_answer_records()
@@ -1706,9 +1891,15 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
                     self.send_json({"ok": True, "data": result}, extra_headers={"ETag": make_json_etag(result)})
                     return
                 if route == "/api/leaderboard":
+                    current_raw = read_json(LEADERBOARD_PATH, [])
+                    expected_etag = self.headers.get("If-Match")
+                    current_etag = make_json_etag(validate_leaderboard(current_raw))
+                    if expected_etag and expected_etag != current_etag:
+                        self.send_api_error("排行榜已被另一个管理页面修改，请先刷新后再保存。", HTTPStatus.CONFLICT)
+                        return
                     result = validate_leaderboard(payload)
                     backup_and_write(LEADERBOARD_PATH, result, LEADERBOARD_BACKUP_DIR)
-                    self.send_json({"ok": True, "data": result})
+                    self.send_json({"ok": True, "data": result}, extra_headers={"ETag": make_json_etag(result)})
                     return
                 if route == "/api/admin-settings":
                     if not isinstance(payload, dict):
@@ -1873,7 +2064,12 @@ def main() -> None:
         shutdown_callback=request_shutdown,
     )
     UPDATE_MANAGER.start_background()
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), QuizRequestHandler)
+    write_service_pid()
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", args.port), QuizRequestHandler)
+    except Exception:
+        remove_service_pid()
+        raise
     HTTP_SERVER = server
     student_url = f"http://127.0.0.1:{args.port}/"
     print(f"文言实词训练已启动：{student_url}")
@@ -1889,6 +2085,7 @@ def main() -> None:
         print("\n服务已停止。")
     finally:
         server.server_close()
+        remove_service_pid()
 
 
 if __name__ == "__main__":
