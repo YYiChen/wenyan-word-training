@@ -78,9 +78,6 @@ python tools/run_server.py --port 8000
 - `data/question-reviews.json`：本机教师审查状态、建议答案、选项问题和审查备注
 - `data/backups/`：后台每次保存前自动生成的旧文件备份
 - `%LOCALAPPDATA%/WenyanQuiz/backups/`：排行榜每次保存前自动生成的旧文件备份
-- `tools/build_basic_question_bank.py`：合并原有260道题与扩容规格，重新生成网页题库
-- `tools/expand_question_bank.py`：从课文注释、实词例句和人工整理行生成候选题，并按篇目配额扩容
-- `tools/optional_question_bank.py`：选择性必修上、中、下册16篇文章的目录和160道题目规格
 - `tools/run_server.py`：本地服务，负责提供网页和持久化保存接口
 
 GitHub 仓库、源码 ZIP、Windows release ZIP 都不包含真实题库、审查记录、题库导入历史或题库制作素材。发布包可以直接启动，但初始状态没有可答题目；管理员导入题库后，题库会固化保存在本机，不会因升级代码包而被覆盖。
