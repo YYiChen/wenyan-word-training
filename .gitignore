@@ -14,6 +14,12 @@ data/question-bank-history.json
 data/expanded_question_specs.json
 data/questions-complex-archive.json
 
+# Private question-bank generation sources. They may remain on a teacher's
+# development machine, but are not part of the public repository.
+tools/build_basic_question_bank.py
+tools/expand_question_bank.py
+tools/optional_question_bank.py
+
 # PyInstaller build products and local release staging folders
 build/
 release-build/
