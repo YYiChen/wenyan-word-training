@@ -17,26 +17,34 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 
-SOURCE_FILES = [
-    ".gitignore",
-    "admin.css",
+RUNTIME_WEB_FILES = [
+    "index.html",
     "admin.html",
-    "admin.js",
     "app.js",
-    "assets/wenyan-word-training.ico",
+    "admin.js",
+    "scoring.js",
+    "question_identity.js",
     "feedback-effects.js",
     "pk-finish-effects.css",
     "pk-finish-effects.js",
-    "index.html",
-    "question_identity.js",
-    "scoring.js",
     "style.css",
+    "admin.css",
     "version.json",
-    "免Python版使用说明.txt",
+    "assets/wenyan-word-training.ico",
+]
+
+RUNTIME_PYTHON_FILES = [
     "tools/run_server.py",
     "tools/launcher.py",
     "tools/update_helper.py",
     "tools/update_service.py",
+]
+
+SOURCE_FILES = [
+    ".gitignore",
+    *RUNTIME_WEB_FILES,
+    "免Python版使用说明.txt",
+    *RUNTIME_PYTHON_FILES,
 ]
 
 PUBLIC_README = """# 文言实词限时训练
@@ -203,21 +211,7 @@ def build_windows_archive(
         script=root / "tools" / "launcher.py",
         name="文言实词限时训练",
         onefile=True,
-        data_files=[
-            "index.html",
-            "admin.html",
-            "app.js",
-            "admin.js",
-            "scoring.js",
-            "question_identity.js",
-            "feedback-effects.js",
-            "pk-finish-effects.css",
-            "pk-finish-effects.js",
-            "style.css",
-            "admin.css",
-            "version.json",
-            "assets/wenyan-word-training.ico",
-        ],
+        data_files=RUNTIME_WEB_FILES,
         icon_file=root / "assets" / "wenyan-word-training.ico",
         noconsole=True,
     )
