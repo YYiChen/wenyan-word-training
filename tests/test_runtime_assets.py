@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import sys
 import unittest
@@ -10,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
 import build_release  # noqa: E402
+import run_server  # noqa: E402
 
 
 class RuntimeAssetTests(unittest.TestCase):
@@ -32,6 +34,10 @@ class RuntimeAssetTests(unittest.TestCase):
                 if not relative or "://" in relative or relative.startswith("#"):
                     continue
                 self.assertTrue((ROOT / relative).is_file(), f"{html_name}: {reference}")
+
+    def test_version_json_is_runtime_version_source(self) -> None:
+        version_payload = json.loads((ROOT / "version.json").read_text(encoding="utf-8"))
+        self.assertEqual(run_server.APP_VERSION, version_payload["version"])
 
 
 if __name__ == "__main__":
