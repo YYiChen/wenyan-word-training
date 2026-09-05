@@ -6,6 +6,9 @@ const API = {
   answerRecords: "./api/answer-records",
   answerRecordsImport: "./api/answer-records/import",
   questionReviews: "./api/question-reviews",
+  questionBankHistory: "./api/question-bank-history",
+  questionBankImport: "./api/question-bank-import",
+  questionBankRevoke: "./api/question-bank-history/revoke",
   adminAuth: "./api/admin-auth",
   adminSettings: "./api/admin-settings",
   updateStatus: "./api/update-status",
@@ -18,7 +21,15 @@ const {
   normalizeScoringConfig,
   serializeScoringConfig,
   formatScoreDelta,
+  MAX_STREAK_THRESHOLD,
 } = window.WenyanScoring;
+const {
+  rebuildDuplicateReviews,
+  mergeQuestionsByContent,
+} = window.WenyanQuestionIdentity;
+
+const MIN_DURATION_SECONDS = 10;
+const MAX_DURATION_SECONDS = 3600;
 
 // 这是本机课堂场景下的后台入口；服务端会再次校验，但不是完整账户系统。
 
@@ -89,10 +100,10 @@ const QUESTION_BANK_FORMAT_GUIDE = `# JSON模版导入说明
 ## 导入规则
 
 1. 题库必须包含“questions”数组，且至少有一道题。
-2. “catalog”是篇目目录，题目的“articleId”必须能在其中找到。
+2. “catalog”是篇目目录，至少要有一篇文章；题目的“articleId”必须能在其中找到，题目的“article”和“volume”必须分别与该篇目的“title”和“volume”一致。
 3. “books”是教材册/范围目录；“catalog[].volume”和“questions[].volume”必须使用对应教材册的“label”。
 4. “questionTypes”是题型目录；题目的“type”必须使用其中的“id”。目前自定义题型会按普通四选一题显示。
-5. 每道题的“id”必须唯一。使用“新增导入题库（合并）”时，和现有题库重复的题目 ID 会跳过，不会覆盖原题。
+5. “id”是题目的稳定本机编号；使用“新增导入题库（合并）”时，系统按文章、考点词、原句、考点位置和题目内容判断重复；新增题会自动使用新的本机编号，不依赖导入文件中的临时 ID。题号 number 也会保持稳定，删除题目后允许出现空号。
 6. 每道题必须有四个选项，选项键必须恰好是 A、B、C、D，“answer”必须是其中一个键。
 
 ## 顶层字段
@@ -102,10 +113,12 @@ const QUESTION_BANK_FORMAT_GUIDE = `# JSON模版导入说明
 - “questionTypes”：题型数组，每项需要“id”、“label”，可选“description”。
 - “books”：教材册数组，每项需要唯一“id”、“label”，可选“order”。
 - “catalog”：文章数组，每项需要唯一“id”、“title”、“volume”，可选“unit”、“author”。
-- “quizDefaults”：可选的训练设置。旧题库可以继续使用“correctScore”和“wrongScore”；新格式建议使用“scoring”配置计分机制。
+- “quizDefaults”：可选的训练设置。“durationSeconds” 是每局答题时长，范围为 10-3600 秒；旧题库可以继续使用“correctScore”和“wrongScore”；新格式建议使用“scoring”配置计分机制。
 - “quizDefaults.scoring.mode”：填写“fixed”或“streak”。“fixed”是固定计分；“streak”是连续表现计分。
-- “quizDefaults.scoring”：可配置“baseCorrect”、“baseWrongPenalty”、“correctStreakAfter”、“correctStreakScore”、“wrongStreakAfter”和“wrongStreakPenalty”。连续次数超过对应 After 值后，当前题开始使用对应的连击分或连续错误扣分。
+- “quizDefaults.scoring”：可配置“baseCorrect”、“baseWrongPenalty”、“correctStreakAfter”、“correctStreakScore”、“wrongStreakAfter”和“wrongStreakPenalty”。连续次数超过对应 After 值后，当前题开始使用对应的连击分或连续错误扣分；“correctStreakAfter”和“wrongStreakAfter”均为 1-5 题。
 - “questions”：题目数组。
+- “questions[].reviewStatus”：可选的发布状态；新导入题建议填写 “candidate”，候选题在教师快速审查通过前不会进入学生答题，通过后由后台改为 “verified”。划线异常题使用 “abnormal”，也不会进入答题。
+- “questions[].duplicateReview”：可选的重复候选审查信息，格式为 { "status": "pending", "groupId": "duplicate-...", "relatedQuestionIds": ["本组题目 ID"] }；pending 和 skipped 题目不会进入学生答题，管理员在“快速审查”中处理后才会恢复。
 
 ## 题目字段
 
@@ -123,7 +136,7 @@ const QUESTION_BANK_FORMAT_GUIDE = `# JSON模版导入说明
 
 ## ID 和名称的区别
 
-- ID 是程序内部识别用的稳定值，必须唯一，建议只使用英文字母、数字、下划线和短横线，并以英文字母开头。ID 一旦用于正式题库，后续不要随意改名。
+- ID 是程序内部使用的稳定本机编号，必须唯一；现有题目会保持原编号，合并导入的新题会由本机自动分配新的 ID。不要依赖导入文件中的临时 ID 判断题目是否重复。
 - label 或 title 是页面显示名称，例如教材册 ID “xxbs”对应名称“选择性必修上册”，篇目 ID “xx2_suwu”对应名称“苏武传”。
 - 题目的 type 必须填写题型 ID，不是题型名称；题目的 articleId 必须填写篇目 ID，不是文章名称；题目的 volume 填教材册名称，也就是 books[].label。
 - 如果只是给一篇已经存在的文章增加新题，请从 catalog 中复制该文章的 article ID，所有新增题目使用新的 question ID，不要复制旧题目的 question ID。
@@ -132,8 +145,8 @@ const QUESTION_BANK_FORMAT_GUIDE = `# JSON模版导入说明
 
 1. 在模板的 questionTypes、books、catalog 中找到要使用的题型 ID、教材册 ID/名称和文章 ID/名称。
 2. 如果文章已经存在，只复用原有 catalog[].id；如果文章不存在，先新增教材册，再新增文章并给它一个新的稳定 ID。
-3. 每道新增题使用全局唯一的 question ID，例如“bx1_quxue_teacher_001”。
-4. 写入 word、sentence 和 targetOccurrence；先从左到右数 word 在 sentence 中的出现次数。不要因为原句里有相同字词，就默认第一处一定是考点。若填写 targetStart，请按从 0 开始的字符位置填写。
+3. 每道新增题可以填写任意临时 question ID；合并导入时，程序会统一改成本机自动分配的题目编号。
+4. 写入 word、sentence 和 targetOccurrence；先从左到右数 word 在 sentence 中的出现次数。不要因为原句里有相同字词，就默认第一处一定是考点。若填写 targetStart，请按从 0 开始的字符位置填写；新导入题即使填写 verified，合并导入也会按 candidate 进入待复核状态。
 5. 如果同一句还要考另一个不同的词，复制 sentence 新建另一道题，并为新题单独计算 targetStart 和 targetOccurrence。
 6. 写入四个选项、正确答案和解析。三个干扰项应是同一个词的其他常见义项或相邻义项，不能只是随意拼凑。
 7. 导入前先检查 articleId、type、volume 的对应关系；再使用“新增导入题库（合并）”。
@@ -143,41 +156,47 @@ const QUESTION_BANK_FORMAT_GUIDE = `# JSON模版导入说明
 
 - articleId 不在 catalog 中，或 type 不在 questionTypes 中。
 - volume 不在 books 的 label 中，或文章的 volume 与题目的 volume 不一致。
-- word 在 sentence 中找不到，targetOccurrence 小于 1，或 targetOccurrence 大于实际出现次数。
-- targetStart 不是从 0 开始的实际字符位置，或 targetStart 与 targetOccurrence 指向的出现位置不一致。
+- catalog 为空、篇目 title 与题目的 article 不一致，或题号 number 重复。
+- word 在 sentence 中找不到，targetOccurrence 小于 1，或 targetOccurrence 大于实际出现次数。此类划线定位问题不会删除题目，服务端会将题目写成 reviewStatus: "abnormal" 并在答题时自动跳过。
+- targetStart 不是从 0 开始的实际字符位置，或 targetStart 与 targetOccurrence 指向的出现位置不一致；请在后台题库管理中重新选择考点并保存。
 - 同一句的不同考点没有拆成不同题目，或一题的 word 同时包含多个互不相连的词。
 - question.id、catalog.id、books.id、questionTypes.id 在各自目录中重复。
 - options 不是恰好四项，选项键不是 A、B、C、D，或选项文字重复。
 
 ## 最小示例
 
-请直接参考本文件末尾的“可直接复制的 JSON 模版”。模版会列出当前题库的全部题型、教材册和篇目目录；生成多道题时，只需继续向“questions”数组添加题目，并保证 ID、篇目 ID、题型 ID 对应正确。
+请直接参考本文件末尾的“可直接复制的 JSON 模版”。模版会列出当前题库的全部题型、教材册和篇目目录；生成多道题时，只需继续向“questions”数组添加题目，并保证篇目 ID、题型 ID 和题目字段对应正确。合并导入时题目 ID 只是临时编号，系统会自动分配本机编号。
 
 ## 合并导入说明
 
-“新增导入题库（合并）”会把新篇目、新教材册、新题型和新题目加入当前题库；同 ID 的题目不会覆盖旧题，导入前会自动备份当前题库。需要修改原题时，请在后台编辑，或先导出当前题库后生成新的完整文件，再使用“导入并替换（谨慎）”。
+“新增导入题库（合并）”会把新篇目、新教材册、新题型和新题目加入当前题库。系统先按文章、考点词、原句和考点出现位置判断核心题目，再比较题型、题干、选项文字、正确答案对应文字和解析：完全一致的题目会跳过；细节不同的题目会保留并标记为“重复候选”，在管理员处理前不会进入答题。导入题统一使用本机自动分配的编号并标记为 candidate，快速审查点击“确认正确”后才发布为 verified；原题不会因为编号冲突被覆盖。导入前会自动备份当前题库。
 `;
 
 let bank = null;
 let leaderboard = [];
 let answerRecords = [];
 let reviews = {};
+let questionBankHistory = [];
 let activeTab = "review";
 let selectedQuestionId = null;
 let creatingQuestion = false;
 let filters = { volume: "all", articleId: "all", query: "" };
-let reviewFilters = { volume: "all", articleId: "all", status: "all", query: "" };
+let reviewFilters = { volume: "all", articleId: "all", status: "all", duplicate: "all", query: "" };
 let expandedReviewId = null;
 const savingReviewIds = new Set();
 let statusMessage = "";
 let loginError = "";
 let adminAuthorized = false;
-let updateStatus = { phase: "idle", available: false, currentVersion: "1.3.0", latestVersion: null, progress: 0 };
+let adminToken = null;
+let questionBankEtag = null;
+let updateStatus = { phase: "idle", available: false, currentVersion: "1.4.4", latestVersion: null, progress: 0 };
 let updateModalOpen = false;
 let updatePromptDismissed = false;
 let updatePollTimer = null;
 let updateRestarting = false;
+let manualUpdateCheck = false;
 let showArchivedRecords = false;
+let showQuestionBankHistory = false;
 const selectedAnswerRecordIds = new Set();
 
 const REVIEW_STATUS_META = {
@@ -185,6 +204,12 @@ const REVIEW_STATUS_META = {
   passed: { label: "已确认", className: "passed" },
   needs_revision: { label: "待修改", className: "needs-revision" },
   skipped: { label: "已跳过", className: "skipped" },
+};
+
+const DUPLICATE_REVIEW_STATUS_META = {
+  pending: { label: "重复候选", className: "duplicate-pending" },
+  kept: { label: "重复题已保留", className: "duplicate-kept" },
+  skipped: { label: "重复题已跳过", className: "duplicate-skipped" },
 };
 
 const escapeHtml = (value) => String(value ?? "")
@@ -222,6 +247,32 @@ const normalizeAnswerRecords = (entries) => (Array.isArray(entries) ? entries : 
     questions: record.questions,
   }))
   .sort((left, right) => right.finishedAt - left.finishedAt);
+
+const normalizeQuestionBankHistory = (payload) => {
+  const events = Array.isArray(payload?.events) ? payload.events : [];
+  return events
+    .filter((event) => event && typeof event.id === "string" && ["import", "export", "revoke"].includes(event.kind))
+    .map((event) => ({
+      id: event.id,
+      kind: event.kind,
+      mode: event.mode === "replace" ? "replace" : "merge",
+      sourceName: String(event.sourceName || "题库 JSON").trim() || "题库 JSON",
+      targetEventId: String(event.targetEventId || "").trim(),
+      targetSourceName: String(event.targetSourceName || "").trim(),
+      createdAt: String(event.createdAt || "").trim(),
+      questionCount: Math.max(0, Number(event.questionCount) || 0),
+      questionCountBefore: Math.max(0, Number(event.questionCountBefore) || 0),
+      questionCountAfter: Math.max(0, Number(event.questionCountAfter) || 0),
+      addedQuestionIds: Array.isArray(event.addedQuestionIds) ? event.addedQuestionIds : [],
+      addedArticleIds: Array.isArray(event.addedArticleIds) ? event.addedArticleIds : [],
+      addedBookIds: Array.isArray(event.addedBookIds) ? event.addedBookIds : [],
+      addedTypeIds: Array.isArray(event.addedTypeIds) ? event.addedTypeIds : [],
+      revoked: Boolean(event.revoked),
+      canRevoke: Boolean(event.canRevoke),
+      revokeReason: String(event.revokeReason || "").trim(),
+    }))
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+};
 
 const formatRecordDate = (timestamp) => {
   if (!timestamp) return "时间未知";
@@ -268,6 +319,40 @@ const normalizeReviews = (payload) => {
 
 const getQuestionReview = (questionId) => reviews[questionId] || normalizeReview(null);
 
+const isQuestionAbnormal = (question) => question?.reviewStatus === "abnormal";
+const getDuplicateReview = (question) => {
+  const duplicateReview = question?.duplicateReview;
+  const status = Object.hasOwn(DUPLICATE_REVIEW_STATUS_META, duplicateReview?.status)
+    ? duplicateReview.status
+    : null;
+  if (!status) return null;
+  return {
+    status,
+    groupId: String(duplicateReview.groupId || "").trim(),
+    relatedQuestionIds: Array.isArray(duplicateReview.relatedQuestionIds)
+      ? [...new Set(duplicateReview.relatedQuestionIds.filter((id) => typeof id === "string" && id.trim()))]
+      : [],
+  };
+};
+const isDuplicateReviewPending = (question) => getDuplicateReview(question)?.status === "pending";
+const getDuplicateReviewCount = (questions = bank?.questions) => (Array.isArray(questions) ? questions : [])
+  .filter(isDuplicateReviewPending).length;
+
+const getQuestionAvailability = (question) => {
+  if (isQuestionAbnormal(question)) return { label: "学生端跳过：划线异常", className: "blocked" };
+  if (getQuestionReview(question?.id).status === "needs_revision") {
+    return { label: "学生端跳过：待修改", className: "blocked" };
+  }
+  if (question?.reviewStatus === "candidate") return { label: "学生端跳过：候选题待复核", className: "blocked" };
+  const duplicateReview = getDuplicateReview(question);
+  if (duplicateReview?.status === "pending") return { label: "学生端跳过：重复候选待审", className: "blocked" };
+  if (duplicateReview?.status === "skipped") return { label: "学生端跳过：重复题已标记跳过", className: "blocked" };
+  return { label: "学生端可抽取（需在所选范围内）", className: "available" };
+};
+
+const getAbnormalQuestionCount = (questions = bank?.questions) => (Array.isArray(questions) ? questions : [])
+  .filter(isQuestionAbnormal).length;
+
 const getReviewStatusMeta = (status) => REVIEW_STATUS_META[status] || REVIEW_STATUS_META.pending;
 
 const hasAdminAccess = () => adminAuthorized;
@@ -299,8 +384,9 @@ const renderLogin = () => {
       submitButton.textContent = "正在验证…";
     }
     try {
-      await authenticateAdmin(password);
+      adminToken = await authenticateAdmin(password);
     } catch (error) {
+      adminToken = null;
       loginError = "密码不正确，请重新输入。";
       renderLogin();
       return;
@@ -373,8 +459,8 @@ const createQuestionBankTemplate = () => {
     _templateInstructions: {
       purpose: "本文件用于制作可导入的文言实词四选一题库；下方目录中的 id 是程序识别用的稳定标识，label、title 是给人看的名称。",
       idVsName: "生成题目时，question.type 使用 questionTypes[].id，question.articleId 使用 catalog[].id；不要把中文名称直接填入这两个字段。question.volume 使用 books[].label。",
-      mergeRule: "使用后台的新增导入题库（合并）时，重复 question.id 不会覆盖旧题；请为新增题目使用全局唯一 ID。",
-       occurrenceRule: "targetOccurrence 从 1 开始，表示 word 在 sentence 中第几次出现；同一个词出现多次时必须明确填写。targetStart 可填写 word 在 sentence 中从 0 开始的字符起点，后台会校验两者一致。",
+      mergeRule: "题目 ID 只是本机编号。新增导入题库（合并）按文章、考点、原句、出现位置和题目内容去重；完全重复会跳过，细节不同的同核心题会保留并标记为重复候选，导入题自动分配本机编号。",
+      occurrenceRule: "targetOccurrence 从 1 开始，表示 word 在 sentence 中第几次出现；同一个词出现多次时必须明确填写。targetStart 可填写 word 在 sentence 中从 0 开始的字符起点，后台会校验两者一致；无法定位时题目会标记为 abnormal 并跳过答题，等待人工复核。",
     },
     schemaVersion: "3.0",
     title: "请填写题库名称",
@@ -422,7 +508,7 @@ ${getCatalog().map((article) => `| ${article.id} | ${article.title} | ${article.
 
 ## 可直接复制的 JSON 模版
 
-下面的代码块是一个可导入的最小模版。请保留目录中的稳定 ID；新增题目时只需向 \`questions\` 数组继续添加题目，并为每道题使用新的全局唯一 \`id\`。
+下面的代码块是一个可导入的最小模版。请保留题型、教材册和篇目目录中的稳定 ID；合并导入时题目的 \`id\` 只是临时本机编号，系统会按内容判断重复并自动为新增题目分配本机编号。
 
 \`\`\`json
 ${JSON.stringify(createQuestionBankTemplate(), null, 2)}
@@ -431,6 +517,7 @@ ${JSON.stringify(createQuestionBankTemplate(), null, 2)}
 
 const saveBank = async (nextBank, message) => {
   bank = await putJson(API.questions, nextBank);
+  reviews = normalizeReviews(await fetchJson(API.questionReviews));
   statusMessage = message;
   render();
 };
@@ -518,11 +605,6 @@ const createQuestionId = () => {
   return candidate;
 };
 
-const reindexQuestions = (questions) => questions.map((question, index) => ({
-  ...question,
-  number: index + 1,
-}));
-
 const createDraftQuestion = () => {
   const article = getCatalog()[0] || {};
   return {
@@ -544,43 +626,88 @@ const createDraftQuestion = () => {
 };
 
 const fetchJson = async (url) => {
-  const response = await fetch(url, { cache: "no-store" });
+  const headers = adminToken ? { "X-Wenyan-Admin-Token": adminToken } : {};
+  const response = await fetch(url, { cache: "no-store", headers });
   const payload = await response.json().catch(() => null);
+  if (response.status === 401 && adminAuthorized) {
+    adminAuthorized = false;
+    adminToken = null;
+    loginError = "管理员授权已失效，请重新登录。";
+    renderLogin();
+  }
   if (!response.ok) throw new Error(payload?.error || `读取失败（${response.status}）。`);
+  if (url === API.questions) questionBankEtag = response.headers.get("ETag") || null;
   return payload;
 };
 
 const postJson = async (url, value) => {
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(adminToken ? { "X-Wenyan-Admin-Token": adminToken } : {}),
+    },
     body: JSON.stringify(value),
   });
   const payload = await response.json().catch(() => null);
+  if (response.status === 401 && adminAuthorized) {
+    adminAuthorized = false;
+    adminToken = null;
+    loginError = "管理员授权已失效，请重新登录。";
+    renderLogin();
+  }
   if (!response.ok || !payload?.ok) throw new Error(payload?.error || "请求失败。");
+  if ([API.questionBankImport, API.questionBankRevoke].includes(url)) {
+    questionBankEtag = response.headers.get("ETag") || questionBankEtag;
+  }
   return payload.data;
 };
 
 const putJson = async (url, value) => {
+  const headers = {
+    "Content-Type": "application/json",
+    ...(adminToken ? { "X-Wenyan-Admin-Token": adminToken } : {}),
+  };
+  if (url === API.questions && questionBankEtag) headers["If-Match"] = questionBankEtag;
   const response = await fetch(url, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(value),
   });
   const payload = await response.json().catch(() => null);
+  if (response.status === 401 && adminAuthorized) {
+    adminAuthorized = false;
+    adminToken = null;
+    loginError = "管理员授权已失效，请重新登录。";
+    renderLogin();
+  }
   if (!response.ok || !payload?.ok) throw new Error(payload?.error || "保存失败。");
+  if (url === API.questions) questionBankEtag = response.headers.get("ETag") || questionBankEtag;
   return payload.data;
 };
 
-const authenticateAdmin = async (password) => postJson(API.adminAuth, { password });
+const authenticateAdmin = async (password) => {
+  const data = await postJson(API.adminAuth, { password });
+  if (!data?.token) throw new Error("服务器没有返回有效的管理员会话。" );
+  return data.token;
+};
 
 const patchJson = async (url, value) => {
   const response = await fetch(url, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(adminToken ? { "X-Wenyan-Admin-Token": adminToken } : {}),
+    },
     body: JSON.stringify(value),
   });
   const payload = await response.json().catch(() => null);
+  if (response.status === 401 && adminAuthorized) {
+    adminAuthorized = false;
+    adminToken = null;
+    loginError = "管理员授权已失效，请重新登录。";
+    renderLogin();
+  }
   if (!response.ok || !payload?.ok) throw new Error(payload?.error || "保存失败。");
   return payload.data;
 };
@@ -588,7 +715,10 @@ const patchJson = async (url, value) => {
 const importAnswerRecordsJson = async (records) => {
   const response = await fetch(API.answerRecordsImport, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(adminToken ? { "X-Wenyan-Admin-Token": adminToken } : {}),
+    },
     body: JSON.stringify({ records }),
   });
   const payload = await response.json().catch(() => null);
@@ -622,9 +752,12 @@ const getReviewFilteredQuestions = () => {
   const keyword = reviewFilters.query.trim().toLowerCase();
   return bank.questions.filter((question) => {
     const review = getQuestionReview(question.id);
+    const duplicateReview = getDuplicateReview(question);
     if (reviewFilters.volume !== "all" && question.volume !== reviewFilters.volume) return false;
     if (reviewFilters.articleId !== "all" && question.articleId !== reviewFilters.articleId) return false;
     if (reviewFilters.status !== "all" && review.status !== reviewFilters.status) return false;
+    if (reviewFilters.duplicate === "pending" && !isDuplicateReviewPending(question)) return false;
+    if (reviewFilters.duplicate === "resolved" && !["kept", "skipped"].includes(duplicateReview?.status)) return false;
     if (!keyword) return true;
     return [
       question.number,
@@ -635,9 +768,12 @@ const getReviewFilteredQuestions = () => {
       ...(question.options || []).map((option) => option.text),
     ].join(" ").toLowerCase().includes(keyword);
   }).sort((left, right) => {
+    const leftDuplicatePending = isDuplicateReviewPending(left) ? 0 : 1;
+    const rightDuplicatePending = isDuplicateReviewPending(right) ? 0 : 1;
     const leftPending = getQuestionReview(left.id).status === "pending" ? 0 : 1;
     const rightPending = getQuestionReview(right.id).status === "pending" ? 0 : 1;
-    return leftPending - rightPending
+    return leftDuplicatePending - rightDuplicatePending
+      || leftPending - rightPending
       || (Number(left.number) || 0) - (Number(right.number) || 0)
       || String(left.id).localeCompare(String(right.id));
   });
@@ -650,6 +786,37 @@ const getReviewCounts = () => {
     if (Object.hasOwn(counts, status)) counts[status] += 1;
   });
   return counts;
+};
+
+const getDuplicateComparisonQuestions = (question) => {
+  const duplicateReview = getDuplicateReview(question);
+  if (!duplicateReview) return [];
+  const relatedIds = new Set(duplicateReview.relatedQuestionIds);
+  return bank.questions.filter((candidate) => relatedIds.has(candidate.id));
+};
+
+const renderDuplicateComparison = (question) => {
+  const duplicateReview = getDuplicateReview(question);
+  if (!duplicateReview) return "";
+  const relatedQuestions = getDuplicateComparisonQuestions(question);
+  const statusMeta = DUPLICATE_REVIEW_STATUS_META[duplicateReview.status];
+  return `
+    <details class="duplicate-comparison" ${duplicateReview.status === "pending" ? "open" : ""}>
+      <summary><span>${statusMeta.label}</span><strong>查看同组 ${relatedQuestions.length} 道题对比</strong></summary>
+      <div class="duplicate-comparison-list">
+        ${relatedQuestions.map((candidate) => `
+          <div class="duplicate-comparison-item ${candidate.id === question.id ? "current" : ""}">
+            <div class="duplicate-comparison-heading"><strong>#${escapeHtml(candidate.number)} · ${candidate.id === question.id ? "当前题目" : "关联题"}</strong><span>${escapeHtml(getDuplicateReview(candidate)?.status ? DUPLICATE_REVIEW_STATUS_META[getDuplicateReview(candidate).status].label : "普通题")}</span></div>
+            <p><span>原句：</span>${escapeHtml(candidate.sentence)}</p>
+            <p><span>考点：</span>${escapeHtml(candidate.word)} · 第 ${escapeHtml(candidate.targetOccurrence || 1)} 处</p>
+            <p><span>选项：</span>${escapeHtml((candidate.options || []).map((option) => option.text).join("｜"))}</p>
+            <p><span>答案：</span>${escapeHtml(optionText(candidate, candidate.answer))}</p>
+            <p><span>解析：</span>${escapeHtml(candidate.explanation)}</p>
+          </div>
+        `).join("")}
+      </div>
+    </details>
+  `;
 };
 
 const renderReviewOption = (question, option, review) => {
@@ -703,12 +870,14 @@ const renderReviewSentence = (question) => {
 
 const renderReviewCard = (question) => {
   const review = getQuestionReview(question.id);
+  const duplicateReview = getDuplicateReview(question);
   const meta = getReviewStatusMeta(review.status);
   const isSaving = savingReviewIds.has(question.id);
   const expanded = expandedReviewId === question.id;
   const sourceTitle = question.source?.title || "暂无来源说明";
   const occurrenceCount = getWordOccurrences(question.sentence, question.word).length;
   const occurrenceLabel = occurrenceCount > 1 ? ` · 第 ${Number(question.targetOccurrence) || 1} 处/共 ${occurrenceCount} 处` : "";
+  const availability = getQuestionAvailability(question);
   let actions = "";
 
   if (review.status === "pending") {
@@ -734,17 +903,30 @@ const renderReviewCard = (question) => {
     `;
   }
 
+  const duplicateActions = duplicateReview?.status === "pending"
+    ? `
+      <button class="review-action review-action-primary" type="button" data-duplicate-action="keep" data-question-id="${escapeHtml(question.id)}">确认保留</button>
+      <button class="review-action review-action-warning" type="button" data-duplicate-action="skip" data-question-id="${escapeHtml(question.id)}">标记跳过</button>
+    `
+    : duplicateReview
+      ? `<button class="review-action review-action-quiet" type="button" data-duplicate-action="reset" data-question-id="${escapeHtml(question.id)}">恢复重复待审</button>`
+      : "";
+
   return `
     <article class="admin-card review-card review-card-${meta.className}" id="review-card-${escapeHtml(question.id)}" data-review-id="${escapeHtml(question.id)}">
       <header class="review-card-header">
         <div class="review-card-identity">
           <span class="review-status-pill review-status-${meta.className}">${meta.label}</span>
+          ${isQuestionAbnormal(question) ? `<span class="question-abnormal-badge">划线异常</span>` : ""}
+          ${duplicateReview ? `<span class="duplicate-review-badge duplicate-review-${duplicateReview.status}">${DUPLICATE_REVIEW_STATUS_META[duplicateReview.status].label}</span>` : ""}
+          <span class="review-availability review-availability-${availability.className}">${availability.label}</span>
           <strong class="review-number">#${escapeHtml(question.number)}</strong>
           <span class="review-word">考查实词：${escapeHtml(question.word)}${escapeHtml(occurrenceLabel)}</span>
           <span class="review-source-label">${escapeHtml(question.volume)} · ${escapeHtml(formatArticleLabel(question.article))}</span>
         </div>
         <div class="review-card-actions ${isSaving ? "is-saving" : ""}">
           ${actions.replaceAll("<button ", `<button ${isSaving ? "disabled " : ""}`)}
+          ${duplicateActions}
         </div>
       </header>
       <div class="review-card-body">
@@ -759,6 +941,7 @@ const renderReviewCard = (question) => {
             <p><span>题库来源：</span>${escapeHtml(sourceTitle)}</p>
           </div>
         </details>
+        ${renderDuplicateComparison(question)}
         ${review.note ? `<p class="review-note"><span>审查备注：</span>${escapeHtml(review.note)}</p>` : ""}
       </div>
       ${expanded ? renderReviewIssuePanel(question, review) : ""}
@@ -768,6 +951,7 @@ const renderReviewCard = (question) => {
 
 const renderReviewTab = () => {
   const counts = getReviewCounts();
+  const duplicateCount = getDuplicateReviewCount();
   const questions = getReviewFilteredQuestions();
   return `
     <section class="review-workspace" aria-label="快速审查题目">
@@ -785,6 +969,9 @@ const renderReviewTab = () => {
               <span>${REVIEW_STATUS_META[status].label}</span><strong>${counts[status]}</strong>
             </div>
           `).join("")}
+          <div class="review-stat review-stat-duplicate">
+            <span>重复候选</span><strong>${duplicateCount}</strong>
+          </div>
         </div>
       </section>
       <section class="admin-card review-toolbar">
@@ -804,6 +991,11 @@ const renderReviewTab = () => {
           <select class="admin-select" id="review-status" aria-label="按审查状态筛选">
             <option value="all" ${reviewFilters.status === "all" ? "selected" : ""}>全部状态</option>
             ${["pending", "passed", "needs_revision", "skipped"].map((status) => `<option value="${status}" ${reviewFilters.status === status ? "selected" : ""}>${REVIEW_STATUS_META[status].label}</option>`).join("")}
+          </select>
+          <select class="admin-select" id="review-duplicate" aria-label="按重复候选筛选">
+            <option value="all" ${reviewFilters.duplicate === "all" ? "selected" : ""}>全部重复状态</option>
+            <option value="pending" ${reviewFilters.duplicate === "pending" ? "selected" : ""}>重复候选</option>
+            <option value="resolved" ${reviewFilters.duplicate === "resolved" ? "selected" : ""}>已处理重复题</option>
           </select>
           <input class="admin-input" id="review-search" type="search" value="${escapeHtml(reviewFilters.query)}" placeholder="搜索题号、实词、原句或释义" />
         </div>
@@ -843,7 +1035,7 @@ const renderQuestionList = () => {
       <div class="question-list">
         ${questions.length ? questions.map((question) => `
           <button class="question-list-item ${question.id === selectedQuestionId ? "selected" : ""}" type="button" data-question-id="${escapeHtml(question.id)}">
-             <span class="question-list-topline"><span>#${question.number}</span><span>${escapeHtml(question.word)}${getWordOccurrences(question.sentence, question.word).length > 1 ? ` · 第 ${Number(question.targetOccurrence) || 1} 处` : ""}</span></span>
+             <span class="question-list-topline"><span>#${question.number}</span><span>${escapeHtml(question.word)}${getWordOccurrences(question.sentence, question.word).length > 1 ? ` · 第 ${Number(question.targetOccurrence) || 1} 处` : ""}${isQuestionAbnormal(question) ? `<em class="question-abnormal-badge">异常待复核</em>` : ""}${question.reviewStatus === "candidate" ? `<em class="question-candidate-badge">候选待复核</em>` : ""}${isDuplicateReviewPending(question) ? `<em class="duplicate-review-badge duplicate-review-pending">重复候选</em>` : ""}</span></span>
             <span class="question-list-meta">${escapeHtml(formatArticleLabel(question.article))} · ${escapeHtml(question.sentence)}</span>
           </button>
         `).join("") : `<p class="editor-empty">没有找到题目。</p>`}
@@ -859,17 +1051,19 @@ const renderQuestionEditor = () => {
   if (!question) {
     return `<section class="admin-card editor-card"><div class="editor-empty">从左侧选择一道题，即可查看和修改。</div></section>`;
   }
+  const questionType = question.type || "context_meaning";
   return `
     <section class="admin-card editor-card" aria-label="题目编辑器">
       <div class="editor-title-row">
         <h2>${creatingQuestion ? "新增题目" : `编辑第 ${question.number} 题`}</h2>
         ${statusMessage ? `<span class="editor-status">${escapeHtml(statusMessage)}</span>` : ""}
       </div>
+      ${isQuestionAbnormal(question) ? `<p class="editor-abnormal-warning" role="alert"><strong>这道题已标记为异常，答题时会自动跳过。</strong>${question.reviewNote ? ` ${escapeHtml(question.reviewNote)}` : " 请重新选择并保存原句中的考点，修复后即可恢复答题。"}</p>` : ""}
       <form id="question-editor">
         <div class="editor-grid">
           <label class="editor-field">题型
             <select class="admin-select" name="type">
-              ${getQuestionTypes().map((type) => `<option value="${escapeHtml(type.id)}" ${question.type === type.id ? "selected" : ""}>${escapeHtml(type.label)}</option>`).join("")}
+              ${getQuestionTypes().map((type) => `<option value="${escapeHtml(type.id)}" ${questionType === type.id ? "selected" : ""}>${escapeHtml(type.label)}</option>`).join("")}
             </select>
           </label>
           <label class="editor-field full">所属文章
@@ -929,15 +1123,86 @@ const renderQuestionEditor = () => {
   `;
 };
 
+const formatQuestionBankHistoryDate = (value) => {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "时间未知" : new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+};
+
+const renderQuestionBankHistory = () => `
+  <section class="admin-card question-history-card" aria-label="题库导入导出历史">
+    <div class="admin-card-header question-history-header">
+      <div>
+        <h2 class="admin-card-title">导入 / 导出历史</h2>
+        <p class="admin-subtitle">历史记录只读，不能删除或修改。撤销导入会追加一条不可逆的撤销记录；功能上线前的导入没有可追溯批次，不能安全撤销。</p>
+      </div>
+      <span class="admin-count">${questionBankHistory.length} 条记录</span>
+    </div>
+    ${questionBankHistory.length ? `
+      <div class="question-history-list">
+        ${questionBankHistory.map((event) => {
+          if (event.kind === "export") {
+            return `
+              <article class="question-history-row">
+                <div class="question-history-kind export">导出题库</div>
+                <div class="question-history-main">
+                  <strong>${escapeHtml(event.sourceName)}</strong>
+                  <span>${escapeHtml(formatQuestionBankHistoryDate(event.createdAt))} · JSON · ${event.questionCount} 道题</span>
+                </div>
+                <span class="question-history-status readonly">只读记录</span>
+              </article>
+            `;
+          }
+          if (event.kind === "revoke") {
+            return `
+              <article class="question-history-row">
+                <div class="question-history-kind revoke">撤销导入</div>
+                <div class="question-history-main">
+                  <strong>${escapeHtml(event.targetSourceName || event.targetEventId)}</strong>
+                  <span>${escapeHtml(formatQuestionBankHistoryDate(event.createdAt))} · 对应导入记录已撤销</span>
+                </div>
+                <span class="question-history-status readonly">不可逆操作</span>
+              </article>
+            `;
+          }
+          const detail = `${event.mode === "replace" ? "替换导入" : "合并导入"} · 题目 ${event.questionCountBefore} → ${event.questionCountAfter} · 新增 ${event.addedQuestionIds.length} 道题`;
+          return `
+            <article class="question-history-row ${event.revoked ? "is-revoked" : ""}">
+              <div class="question-history-kind import">导入题库</div>
+              <div class="question-history-main">
+                <strong>${escapeHtml(event.sourceName)}</strong>
+                <span>${escapeHtml(formatQuestionBankHistoryDate(event.createdAt))} · ${escapeHtml(detail)}</span>
+              </div>
+              <div class="question-history-action">
+                ${event.revoked
+                  ? `<span class="question-history-status revoked">已撤销</span>`
+                  : event.canRevoke
+                    ? `<button class="admin-danger admin-small-button" type="button" data-action="revoke-question-import" data-history-event-id="${escapeHtml(event.id)}">撤销导入</button>`
+                    : `<span class="question-history-status" title="${escapeHtml(event.revokeReason)}">暂不可撤销</span>`}
+              </div>
+            </article>
+          `;
+        }).join("")}
+      </div>
+    ` : `<div class="editor-empty">暂无导入或导出历史。</div>`}
+  </section>
+`;
+
 const renderQuestionTools = () => `
   <section class="admin-card question-tools" aria-label="题库文件工具">
     <div class="question-tools-copy">
       <h2 class="admin-card-title">题库文件</h2>
-      <p>可以导出当前完整题库，也可以把另一份题库合并进来。所有写入都会先自动备份原文件。</p>
+      <p>可以导出当前完整题库，也可以把另一份题库合并进来。所有写入都会先自动备份原文件，并记录导入批次。</p>
     </div>
     <div class="question-tools-actions">
       <button class="admin-secondary" type="button" data-action="export-bank">导出当前题库 JSON</button>
       <button class="admin-secondary" type="button" data-action="download-import-guide">下载 JSON模版导入说明</button>
+      <button class="admin-secondary" type="button" data-action="toggle-question-history">${showQuestionBankHistory ? "收起导入/导出历史" : `查看导入/导出历史（${questionBankHistory.length}）`}</button>
       <button class="admin-primary" type="button" data-action="merge-bank">新增导入题库（合并）</button>
       <button class="admin-danger" type="button" data-action="replace-bank">导入并替换（谨慎）</button>
       <input id="question-bank-file" type="file" accept="application/json,.json" hidden />
@@ -945,7 +1210,7 @@ const renderQuestionTools = () => `
   </section>
 `;
 
-const renderQuestionTab = () => `${renderQuestionTools()}<div class="admin-grid">${renderQuestionList()}${renderQuestionEditor()}</div>`;
+const renderQuestionTab = () => `${renderQuestionTools()}${showQuestionBankHistory ? renderQuestionBankHistory() : ""}<div class="admin-grid">${renderQuestionList()}${renderQuestionEditor()}</div>`;
 
 const renderQuestionTypeSettings = () => `
   <section class="admin-card settings-card">
@@ -1094,14 +1359,21 @@ const renderScoringPreview = (config) => {
   const correctSuper = calculateScoreEvent(config, true, { correctStreak: config.correctStreakAfter, wrongStreak: 0 });
   const wrongBase = calculateScoreEvent(config, false, { correctStreak: 0, wrongStreak: 0 });
   const wrongSuper = calculateScoreEvent(config, false, { correctStreak: 0, wrongStreak: config.wrongStreakAfter });
+  if (config.mode === "fixed") {
+    return `<div class="scoring-preview-line"><span class="scoring-preview-label">固定计分</span><strong>答对 ${formatScoreDelta(correctBase.scoreDelta)} · 答错 ${formatScoreDelta(wrongBase.scoreDelta)}</strong></div>`;
+  }
   return `
-    <div class="scoring-preview-line"><span class="scoring-preview-label">连续答对</span><strong>${formatScoreDelta(correctBase.scoreDelta)} → … → 第 ${config.correctStreakAfter + 1} 次 ${formatScoreDelta(correctSuper.scoreDelta)}</strong></div>
-    <div class="scoring-preview-line"><span class="scoring-preview-label">连续答错</span><strong>${formatScoreDelta(wrongBase.scoreDelta)} → … → 第 ${config.wrongStreakAfter + 1} 次 ${formatScoreDelta(wrongSuper.scoreDelta)}</strong></div>
+    <div class="scoring-preview-line"><span class="scoring-preview-label">连续答对</span><strong>${formatScoreDelta(correctBase.scoreDelta)} → … → 第 ${config.correctStreakAfter + 1} 题 ${formatScoreDelta(correctSuper.scoreDelta)}</strong></div>
+    <div class="scoring-preview-line"><span class="scoring-preview-label">连续答错</span><strong>${formatScoreDelta(wrongBase.scoreDelta)} → … → 第 ${config.wrongStreakAfter + 1} 题 ${formatScoreDelta(wrongSuper.scoreDelta)}</strong></div>
   `;
 };
 
 const renderScoringTab = () => {
   const config = normalizeScoringConfig(bank.quizDefaults);
+  const rawDuration = Number(bank.quizDefaults?.durationSeconds);
+  const durationSeconds = Number.isInteger(rawDuration) && rawDuration >= MIN_DURATION_SECONDS && rawDuration <= MAX_DURATION_SECONDS
+    ? rawDuration
+    : 120;
   return `
     <section class="settings-intro admin-card">
       <h2 class="admin-card-title">计分机制</h2>
@@ -1117,60 +1389,64 @@ const renderScoringTab = () => {
           <span class="settings-badge">全局设置</span>
         </div>
         <div class="scoring-mode-options" role="radiogroup" aria-label="选择计分机制">
-          <label class="scoring-mode-card ${config.mode === "fixed" ? "selected" : ""}">
-            <input type="radio" name="mode" value="fixed" ${config.mode === "fixed" ? "checked" : ""} />
-            <span class="scoring-mode-card-body">
-              <strong>固定计分</strong>
-              <span>每道题使用同一套基础加分和扣分。</span>
-              <small>当前示例：答对 ${formatScoreDelta(config.baseCorrect)}，答错 ${formatScoreDelta(-config.baseWrongPenalty)}</small>
-            </span>
-          </label>
-          <label class="scoring-mode-card ${config.mode === "streak" ? "selected" : ""}">
-            <input type="radio" name="mode" value="streak" ${config.mode === "streak" ? "checked" : ""} />
-            <span class="scoring-mode-card-body">
-              <strong>连续表现</strong>
-              <span>连续答对进入连击加分，连续答错进入连续错误扣分。</span>
-              <small>答对 ${formatScoreDelta(config.baseCorrect)} / 连击 ${formatScoreDelta(config.correctStreakScore)} · 答错 ${formatScoreDelta(-config.baseWrongPenalty)} / 连错 ${formatScoreDelta(-config.wrongStreakPenalty)}</small>
-            </span>
-          </label>
-        </div>
-      </section>
-      <section class="admin-card scoring-card">
-        <div class="settings-card-heading">
-          <div>
-            <h2 class="admin-card-title">分值与连续条件</h2>
-            <p>“达到 N 题后”表示第 N+1 题开始使用连击分；答对和答错会互相重置连续次数。</p>
+          <div class="scoring-mode-card ${config.mode === "fixed" ? "selected" : ""}">
+            <label class="scoring-mode-select">
+              <input type="radio" name="mode" value="fixed" ${config.mode === "fixed" ? "checked" : ""} />
+              <span class="scoring-mode-card-body">
+                <strong class="scoring-mode-title">固定计分</strong>
+                <span>每道题使用同一套基础加分和扣分。</span>
+              </span>
+            </label>
+            <div class="scoring-mode-config">
+              <span class="scoring-rule-caption">基础分</span>
+              <p class="scoring-rule-sentence scoring-base-sentence">
+                <span class="scoring-rule-line">答对每题加 <input class="admin-input scoring-inline-input" name="baseCorrect" type="number" min="0" max="1000" step="1" value="${config.baseCorrect}" required aria-label="固定计分答对基础分" /> 分</span>
+                <span class="scoring-rule-line">答错每题扣 <input class="admin-input scoring-inline-input" name="baseWrongPenalty" type="number" min="0" max="1000" step="1" value="${config.baseWrongPenalty}" required aria-label="固定计分答错基础扣分" /> 分。</span>
+              </p>
+              <small>当前规则：答对 ${formatScoreDelta(config.baseCorrect)}，答错 ${formatScoreDelta(-config.baseWrongPenalty)}</small>
+            </div>
+          </div>
+          <div class="scoring-mode-card ${config.mode === "streak" ? "selected" : ""}">
+            <label class="scoring-mode-select">
+              <input type="radio" name="mode" value="streak" ${config.mode === "streak" ? "checked" : ""} />
+              <span class="scoring-mode-card-body">
+                <strong class="scoring-mode-title">连续表现</strong>
+                <span>连续答对进入连击加分，连续答错进入连续错误扣分。</span>
+              </span>
+            </label>
+            <div class="scoring-mode-config">
+              <span class="scoring-rule-caption">基础分</span>
+              <p class="scoring-rule-sentence scoring-base-sentence">
+                <span class="scoring-rule-line">答对每题加 <input class="admin-input scoring-inline-input" name="baseCorrect" type="number" min="0" max="1000" step="1" value="${config.baseCorrect}" required aria-label="连续表现答对基础分" /> 分</span>
+                <span class="scoring-rule-line">答错每题扣 <input class="admin-input scoring-inline-input" name="baseWrongPenalty" type="number" min="0" max="1000" step="1" value="${config.baseWrongPenalty}" required aria-label="连续表现答错基础扣分" /> 分。</span>
+              </p>
+              <div class="scoring-streak-rules">
+                <div class="scoring-streak-rule">
+                  <span class="scoring-rule-caption">连续答对 · 连击加分</span>
+                  <p class="scoring-rule-sentence">
+                    <span class="scoring-rule-line">连续答对达到 <input class="admin-input scoring-inline-input" name="correctStreakAfter" type="number" min="1" max="${MAX_STREAK_THRESHOLD}" step="1" value="${config.correctStreakAfter}" required aria-label="连续答对题数" /> 题后</span>
+                    <span class="scoring-rule-line">从下一题起每题加 <input class="admin-input scoring-inline-input" name="correctStreakScore" type="number" min="0" max="1000" step="1" value="${config.correctStreakScore}" required aria-label="连续答对加分" /> 分。</span>
+                  </p>
+                </div>
+                <div class="scoring-streak-rule">
+                  <span class="scoring-rule-caption">连续答错 · 连续错误扣分</span>
+                  <p class="scoring-rule-sentence">
+                    <span class="scoring-rule-line">连续答错达到 <input class="admin-input scoring-inline-input" name="wrongStreakAfter" type="number" min="1" max="${MAX_STREAK_THRESHOLD}" step="1" value="${config.wrongStreakAfter}" required aria-label="连续答错题数" /> 题后</span>
+                    <span class="scoring-rule-line">从下一题起每题扣 <input class="admin-input scoring-inline-input" name="wrongStreakPenalty" type="number" min="0" max="1000" step="1" value="${config.wrongStreakPenalty}" required aria-label="连续答错扣分" /> 分。</span>
+                  </p>
+                </div>
+              </div>
+              <small>当前规则：基础 ${formatScoreDelta(config.baseCorrect)} / ${formatScoreDelta(-config.baseWrongPenalty)} · 连击 ${formatScoreDelta(config.correctStreakScore)} / 连错 ${formatScoreDelta(-config.wrongStreakPenalty)}</small>
+            </div>
           </div>
         </div>
-        <div class="scoring-field-groups">
-          <fieldset class="scoring-field-group">
-            <legend>基础分</legend>
-            <label class="editor-field">答对一题加
-              <span class="admin-number-with-unit"><input class="admin-input" name="baseCorrect" type="number" min="0" max="1000" step="1" value="${config.baseCorrect}" required /><span>分</span></span>
-            </label>
-            <label class="editor-field">答错一题扣
-              <span class="admin-number-with-unit"><input class="admin-input" name="baseWrongPenalty" type="number" min="0" max="1000" step="1" value="${config.baseWrongPenalty}" required /><span>分</span></span>
-            </label>
-          </fieldset>
-          <fieldset class="scoring-field-group">
-            <legend>连续答对 · 连击加分</legend>
-            <label class="editor-field">连续答对达到
-              <span class="admin-number-with-unit"><input class="admin-input" name="correctStreakAfter" type="number" min="1" max="1000" step="1" value="${config.correctStreakAfter}" required /><span>题后</span></span>
-            </label>
-            <label class="editor-field">从下一题起每题加
-              <span class="admin-number-with-unit"><input class="admin-input" name="correctStreakScore" type="number" min="0" max="1000" step="1" value="${config.correctStreakScore}" required /><span>分</span></span>
-            </label>
-          </fieldset>
-          <fieldset class="scoring-field-group">
-            <legend>连续答错 · 连续错误扣分</legend>
-            <label class="editor-field">连续答错达到
-              <span class="admin-number-with-unit"><input class="admin-input" name="wrongStreakAfter" type="number" min="1" max="1000" step="1" value="${config.wrongStreakAfter}" required /><span>题后</span></span>
-            </label>
-            <label class="editor-field">从下一题起每题扣
-              <span class="admin-number-with-unit"><input class="admin-input" name="wrongStreakPenalty" type="number" min="0" max="1000" step="1" value="${config.wrongStreakPenalty}" required /><span>分</span></span>
-            </label>
-          </fieldset>
+        <div class="scoring-duration-setting">
+          <label class="editor-field">每局答题时长
+            <span class="admin-number-with-unit"><input class="admin-input scoring-duration-input" name="durationSeconds" type="number" min="${MIN_DURATION_SECONDS}" max="${MAX_DURATION_SECONDS}" step="1" value="${durationSeconds}" required /><span>秒</span></span>
+          </label>
+          <p>可设置 ${MIN_DURATION_SECONDS} 秒至 ${Math.floor(MAX_DURATION_SECONDS / 60)} 分钟；保存后只对新开的训练局生效。</p>
         </div>
+        <p class="scoring-settings-note">“达到 N 题后”表示第 N+1 题开始使用连击分；答对和答错会互相重置连续次数。</p>
         <div class="scoring-preview" aria-live="polite">
           <div class="scoring-preview-heading"><strong>规则预览</strong><span>当前：${config.mode === "streak" ? "连续表现模式" : "固定计分模式"}</span></div>
           <div data-scoring-preview>${renderScoringPreview(config)}</div>
@@ -1234,9 +1510,9 @@ const renderAnswerRecordsTab = () => {
       <div class="admin-card-header answer-record-admin-header">
         <div>
           <h2 class="admin-card-title">答题记录</h2>
-          <p class="admin-subtitle">答题记录只能折叠或恢复，不能从系统中删除；折叠前会自动备份，导入导出均使用本机 JSON 文件。</p>
+          <p class="admin-subtitle">答题记录可手动折叠或恢复；已折叠、未折叠分别只保留最近 1 个月内的最新 100 条，超出各自范围的记录会清除并在清除前备份。导入导出均使用本机 JSON 文件。</p>
         </div>
-        <span class="admin-count">未折叠 ${answerRecords.length - archivedCount} 条 · 已折叠 ${archivedCount} 条</span>
+        <span class="admin-count">未折叠 ${answerRecords.length - archivedCount} / 100 · 已折叠 ${archivedCount} / 100</span>
       </div>
       <div class="answer-record-admin-actions">
         <div class="answer-record-admin-file-actions">
@@ -1358,10 +1634,26 @@ const applyUpdateStatus = (next, autoPrompt = false) => {
   render();
 };
 
+const notifyManualUpdateResult = (next) => {
+  if (!manualUpdateCheck || !next || UPDATE_BUSY_PHASES.has(next.phase)) return;
+  manualUpdateCheck = false;
+  if (next.available) return;
+  const detail = next.error ? `\n${next.error}` : "";
+  const message = next.phase === "up_to_date"
+    ? "检查更新完成：当前已经是最新版。"
+    : next.phase === "blocked"
+      ? "检查更新完成：检测到本地源码有修改，为避免覆盖本地内容，暂不自动更新。"
+      : next.phase === "failed"
+        ? `检查更新失败：更新服务没有完成本次检查。${detail}`
+        : "暂时无法检查更新：请确认本机服务正常，并检查网络或 GitHub 是否可访问。";
+  window.alert(message);
+};
+
 const pollUpdateStatus = async (autoPrompt = false) => {
   try {
     const next = await fetchJson(API.updateStatus);
     applyUpdateStatus(next, autoPrompt);
+    notifyManualUpdateResult(next);
     if (UPDATE_BUSY_PHASES.has(next.phase)) {
       updatePollTimer = window.setTimeout(() => pollUpdateStatus(autoPrompt), 800);
     }
@@ -1370,6 +1662,10 @@ const pollUpdateStatus = async (autoPrompt = false) => {
     if (!updateRestarting) {
       updateStatus = { ...updateStatus, phase: "unavailable", available: false };
       render();
+      if (manualUpdateCheck) {
+        manualUpdateCheck = false;
+        window.alert("暂时无法检查更新：更新服务或 GitHub 暂时不可访问，请稍后重试。\n请确认本地服务仍在运行。");
+      }
     }
   }
 };
@@ -1380,6 +1676,7 @@ const startUpdateMonitoring = () => {
 };
 
 const checkForUpdates = async () => {
+  manualUpdateCheck = true;
   updateRestarting = false;
   updateStatus = { ...updateStatus, phase: "checking", available: false, progress: 0 };
   updateModalOpen = false;
@@ -1387,6 +1684,7 @@ const checkForUpdates = async () => {
   try {
     const next = await postJson(API.updateCheck, {});
     applyUpdateStatus(next, false);
+    notifyManualUpdateResult(next);
     if (next.available) {
       updatePromptDismissed = false;
       updateModalOpen = true;
@@ -1396,8 +1694,10 @@ const checkForUpdates = async () => {
       updatePollTimer = window.setTimeout(() => pollUpdateStatus(false), 500);
     }
   } catch {
+    manualUpdateCheck = false;
     updateStatus = { ...updateStatus, phase: "unavailable", available: false };
     render();
+    window.alert("暂时无法检查更新：更新服务或 GitHub 暂时不可访问，请稍后重试。\n请确认本地服务仍在运行。");
   }
 };
 
@@ -1444,7 +1744,7 @@ const render = () => {
         <p class="admin-subtitle">${pageSubtitle}</p>
       </div>
       <div class="admin-header-actions">
-        <button class="admin-secondary" type="button" data-action="check-update">检查更新</button>
+        <button class="admin-secondary" type="button" data-action="check-update" ${UPDATE_BUSY_PHASES.has(updateStatus.phase) ? "disabled" : ""}>${UPDATE_BUSY_PHASES.has(updateStatus.phase) ? escapeHtml(updatePhaseLabel(updateStatus.phase)) : "检查更新"}</button>
         <button class="admin-secondary" type="button" data-action="logout">退出后台</button>
         <a class="admin-home-link" href="./index.html">返回学生答题页</a>
       </div>
@@ -1477,14 +1777,27 @@ const renderError = (message) => {
   `;
 };
 
-const downloadBank = () => {
+const downloadBank = async () => {
+  const filename = "文言实词题库-当前完整题库.json";
   const blob = new Blob([JSON.stringify(bank, null, 2)], { type: "application/json;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = "文言实词题库-当前完整题库.json";
+  link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
+  try {
+    questionBankHistory = normalizeQuestionBankHistory(await postJson(API.questionBankHistory, {
+      kind: "export",
+      format: "json",
+      sourceName: filename,
+      questionCount: bank.questions.length,
+    }));
+    statusMessage = "当前题库已导出，导出记录已保存。";
+  } catch (error) {
+    statusMessage = `题库文件已下载，但导出历史记录保存失败：${error instanceof Error ? error.message : "未知错误"}`;
+  }
+  render();
 };
 
 const downloadTextFile = (filename, content, type) => {
@@ -1533,7 +1846,8 @@ const importAnswerRecordsFromFile = async (file) => {
   const result = await importAnswerRecordsJson(records);
   answerRecords = normalizeAnswerRecords(result.data);
   selectedAnswerRecordIds.clear();
-  statusMessage = `答题记录导入完成：新增 ${result.addedCount} 条，跳过 ${result.skippedCount} 条重复记录`;
+  const prunedText = result.prunedCount ? `，自动清理 ${result.prunedCount} 条超出保留范围的记录` : "";
+  statusMessage = `答题记录导入完成：新增 ${result.addedCount} 条，跳过 ${result.skippedCount} 条重复记录${prunedText}`;
   render();
   return true;
 };
@@ -1635,30 +1949,19 @@ const mergeQuestionBank = (base, imported) => {
     }
   });
 
-  const existingIds = new Set(base.questions.map((question) => question.id));
-  const importedIds = new Set();
-  const newQuestions = [];
-  let skippedQuestions = 0;
-  imported.questions.forEach((question, index) => {
-    if (!question || typeof question.id !== "string" || !question.id.trim()) {
-      throw new Error(`合并失败：第 ${index + 1} 道题缺少 id。`);
-    }
-    if (importedIds.has(question.id)) throw new Error(`合并失败：导入文件内存在重复题目 ID“${question.id}”。`);
-    importedIds.add(question.id);
-    if (existingIds.has(question.id)) {
-      skippedQuestions += 1;
-      return;
-    }
-    newQuestions.push(question);
-  });
-
   const mergedTypes = [...typeById.values()];
   const allowedTypes = new Set(mergedTypes.map((type) => type.id));
-  newQuestions.forEach((question, index) => {
-    if (!allowedTypes.has(question.type)) {
-      throw new Error(`合并失败：新增题目“${question.id || index + 1}”使用了未定义的题型“${question.type}”。`);
+  const importedQuestions = imported.questions.map((question, index) => {
+    if (!question || typeof question !== "object" || Array.isArray(question)) {
+      throw new Error(`合并失败：第 ${index + 1} 道题不是对象。`);
     }
+    const normalized = question.type ? question : { ...question, type: "context_meaning" };
+    if (!allowedTypes.has(normalized.type)) {
+      throw new Error(`合并失败：导入题目“${normalized.id || index + 1}”使用了未定义的题型“${normalized.type}”。`);
+    }
+    return normalized;
   });
+  const questionMerge = mergeQuestionsByContent(base.questions, importedQuestions);
 
   const merged = {
     ...base,
@@ -1666,12 +1969,15 @@ const mergeQuestionBank = (base, imported) => {
     questionTypes: mergedTypes,
     books: [...bookById.values()],
     catalog,
-    questions: reindexQuestions([...base.questions, ...newQuestions]),
+    questions: questionMerge.questions,
   };
   return {
     bank: merged,
-    addedQuestions: newQuestions.length,
-    skippedQuestions,
+    addedQuestions: questionMerge.newQuestions.length,
+    skippedQuestions: questionMerge.skippedQuestions,
+    duplicateCandidateGroups: questionMerge.duplicateCandidateGroups,
+    duplicateCandidateQuestions: questionMerge.duplicateCandidateQuestions,
+    renumberedQuestions: questionMerge.renumberedQuestions,
     addedArticles: catalog.length - getCatalog().length,
     addedBooks: bookById.size - baseBooks.length,
     addedTypes: typeById.size - baseTypes.length,
@@ -1688,18 +1994,63 @@ const importBankFromFile = async (file, mode = "merge") => {
   validateImportedBankShape(imported);
   if (mode === "replace") {
     if (!window.confirm(`确定导入“${file.name}”吗？当前题库将被替换，原题库会先自动备份。`)) return false;
-    bank = await putJson(API.questions, imported);
-    statusMessage = `已替换为 ${bank.questions.length} 道题`;
+    const result = await postJson(API.questionBankImport, {
+      mode,
+      sourceName: file.name,
+      bank: imported,
+    });
+    bank = result.bank;
+    questionBankHistory = normalizeQuestionBankHistory(result.history);
+    const abnormalCount = getAbnormalQuestionCount(bank.questions);
+    statusMessage = `已替换为 ${bank.questions.length} 道题${abnormalCount ? `；${abnormalCount} 道划线异常题已标记并跳过答题` : ""}`;
   } else {
     const merged = mergeQuestionBank(bank, imported);
-    if (!window.confirm(`确定把“${file.name}”新增到当前题库吗？将新增 ${merged.addedQuestions} 道题、${merged.addedArticles} 篇文章、${merged.addedBooks} 册教材和 ${merged.addedTypes} 种题型；重复题目 ID 将跳过。`)) return false;
-    bank = await putJson(API.questions, merged.bank);
-    statusMessage = `合并完成：新增 ${merged.addedQuestions} 道题，跳过 ${merged.skippedQuestions} 道重复题`;
+    if (!window.confirm(`确定把“${file.name}”新增到当前题库吗？将新增 ${merged.addedQuestions} 道题、跳过 ${merged.skippedQuestions} 道完全重复题、标记 ${merged.duplicateCandidateQuestions} 道重复候选题，并新增 ${merged.addedArticles} 篇文章、${merged.addedBooks} 册教材和 ${merged.addedTypes} 种题型；新增题会自动使用本机编号。`)) return false;
+    const result = await postJson(API.questionBankImport, {
+      mode,
+      sourceName: file.name,
+      bank: merged.bank,
+    });
+    bank = result.bank;
+    questionBankHistory = normalizeQuestionBankHistory(result.history);
+    const importedAbnormalCount = merged.addedQuestions > 0
+      ? bank.questions.slice(-merged.addedQuestions).filter(isQuestionAbnormal).length
+      : 0;
+    statusMessage = `合并完成：新增 ${merged.addedQuestions} 道题，跳过 ${merged.skippedQuestions} 道完全重复题，标记 ${merged.duplicateCandidateQuestions} 道重复候选题，自动编号 ${merged.renumberedQuestions} 道${importedAbnormalCount ? `；其中 ${importedAbnormalCount} 道划线异常题已标记并跳过答题` : ""}`;
   }
   selectedQuestionId = bank.questions[0]?.id || null;
   creatingQuestion = false;
   render();
   return true;
+};
+
+const revokeQuestionBankImport = async (eventId) => {
+  const event = questionBankHistory.find((item) => item.id === eventId && item.kind === "import");
+  if (!event || !event.canRevoke || event.revoked) return;
+  const scope = event.mode === "replace"
+    ? "恢复到这次替换导入前的完整题库"
+    : `移除本次导入新增的 ${event.addedQuestionIds.length} 道题及不再使用的目录项`;
+  if (!window.confirm(`确定撤销“${event.sourceName}”吗？\n\n${scope}。此操作不可逆，历史记录本身不会删除，只会追加一条撤销记录。`)) return;
+  const button = adminApp.querySelector(`[data-action="revoke-question-import"][data-history-event-id="${CSS.escape(eventId)}"]`);
+  if (button) {
+    button.disabled = true;
+    button.textContent = "正在撤销…";
+  }
+  try {
+    const result = await postJson(API.questionBankRevoke, { eventId });
+    bank = result.bank;
+    questionBankHistory = normalizeQuestionBankHistory(result.history);
+    selectedQuestionId = bank.questions[0]?.id || null;
+    creatingQuestion = false;
+    statusMessage = `已撤销导入“${event.sourceName}”；历史记录已保留。`;
+    render();
+  } catch (error) {
+    if (button) {
+      button.disabled = false;
+      button.textContent = "撤销导入";
+    }
+    window.alert(error instanceof Error ? error.message : "撤销导入失败。");
+  }
 };
 
 const saveQuestionType = async (form) => {
@@ -1814,7 +2165,7 @@ const saveQuestion = async (form) => {
     explanation: formData.get("explanation").toString().trim(),
     answer: formData.get("answer").toString(),
     options,
-    reviewStatus: current ? "admin_edited" : "admin_created",
+    reviewStatus: current?.reviewStatus === "candidate" ? "candidate" : current ? "admin_edited" : "admin_created",
     source: current?.source || {
       kind: "admin_created",
       title: "管理后台新增题目",
@@ -1828,11 +2179,15 @@ const saveQuestion = async (form) => {
   const nextQuestions = current
     ? bank.questions.map((question) => question.id === updated.id ? updated : question)
     : [...bank.questions, updated];
+  const duplicateMerge = rebuildDuplicateReviews(nextQuestions, {
+    resetQuestionIds: [updated.id],
+  });
   const nextBank = {
     ...bank,
-    questions: current ? nextQuestions : reindexQuestions(nextQuestions),
+    questions: duplicateMerge.questions,
   };
   bank = await putJson(API.questions, nextBank);
+  reviews = normalizeReviews(await fetchJson(API.questionReviews));
   selectedQuestionId = updated.id;
   creatingQuestion = false;
   statusMessage = current ? "已保存到 questions.json" : "新题目已保存到 questions.json";
@@ -1843,31 +2198,45 @@ const readScoringForm = (form) => {
   const formData = new FormData(form);
   const mode = formData.get("mode").toString();
   if (!["fixed", "streak"].includes(mode)) throw new Error("请选择有效的计分机制。");
-  const readNumber = (name, minimum) => {
-    const value = Number(formData.get(name));
-    if (!Number.isInteger(value) || value < minimum || value > 1000) {
-      throw new Error(`${name} 必须是 ${minimum === 1 ? "1-1000" : "0-1000"} 的整数。`);
+  const activeModeCard = [...form.querySelectorAll(".scoring-mode-card")].find((card) => card.querySelector('input[name="mode"]')?.value === mode);
+  const readActiveNumber = (name, minimum, maximum = 1000) => {
+    const input = activeModeCard?.querySelector(`[name="${name}"]`) || form.querySelector(`[name="${name}"]`);
+    const value = Number(input?.value);
+    if (!Number.isInteger(value) || value < minimum || value > maximum) {
+      throw new Error(`${name} 必须是 ${minimum === 1 ? `1-${maximum}` : `0-${maximum}`} 的整数。`);
     }
     return value;
   };
-  return serializeScoringConfig({
-    mode,
-    baseCorrect: readNumber("baseCorrect", 0),
-    baseWrongPenalty: readNumber("baseWrongPenalty", 0),
-    correctStreakAfter: readNumber("correctStreakAfter", 1),
-    correctStreakScore: readNumber("correctStreakScore", 0),
-    wrongStreakAfter: readNumber("wrongStreakAfter", 1),
-    wrongStreakPenalty: readNumber("wrongStreakPenalty", 0),
-  });
+  const readNumber = (name, minimum, maximum = 1000) => {
+    const value = Number(formData.get(name));
+    if (!Number.isInteger(value) || value < minimum || value > maximum) {
+      throw new Error(`${name} 必须是 ${minimum === 1 ? `1-${maximum}` : `0-${maximum}`} 的整数。`);
+    }
+    return value;
+  };
+  const durationSeconds = readNumber("durationSeconds", MIN_DURATION_SECONDS, MAX_DURATION_SECONDS);
+  return {
+    durationSeconds,
+    scoring: serializeScoringConfig({
+      mode,
+      baseCorrect: readActiveNumber("baseCorrect", 0),
+      baseWrongPenalty: readActiveNumber("baseWrongPenalty", 0),
+      correctStreakAfter: readActiveNumber("correctStreakAfter", 1, MAX_STREAK_THRESHOLD),
+      correctStreakScore: readActiveNumber("correctStreakScore", 0),
+      wrongStreakAfter: readActiveNumber("wrongStreakAfter", 1, MAX_STREAK_THRESHOLD),
+      wrongStreakPenalty: readActiveNumber("wrongStreakPenalty", 0),
+    }),
+  };
 };
 
 const saveScoringSettings = async (form) => {
-  const scoring = readScoringForm(form);
+  const { durationSeconds, scoring } = readScoringForm(form);
   const quizDefaults = bank.quizDefaults && typeof bank.quizDefaults === "object" ? bank.quizDefaults : {};
   await saveBank({
     ...bank,
     quizDefaults: {
       ...quizDefaults,
+      durationSeconds,
       correctScore: scoring.baseCorrect,
       wrongScore: -scoring.baseWrongPenalty,
       scoring,
@@ -1882,11 +2251,16 @@ const deleteSelectedQuestion = async () => {
   if (!window.confirm(`确定删除第 ${current.number} 题“${current.word}”吗？删除前会自动备份题库。`)) return;
 
   const currentIndex = bank.questions.findIndex((question) => question.id === current.id);
-  const nextQuestions = reindexQuestions(bank.questions.filter((question) => question.id !== current.id));
+  const remainingQuestions = bank.questions.filter((question) => question.id !== current.id);
+  const duplicateMerge = rebuildDuplicateReviews(remainingQuestions, {
+    resetQuestionIds: [current.id],
+  });
+  const nextQuestions = duplicateMerge.questions;
   bank = await putJson(API.questions, { ...bank, questions: nextQuestions });
+  reviews = normalizeReviews(await fetchJson(API.questionReviews));
   creatingQuestion = false;
   selectedQuestionId = nextQuestions[Math.min(currentIndex, nextQuestions.length - 1)]?.id || null;
-  statusMessage = "题目已删除，题库编号已重新整理";
+  statusMessage = "题目已删除，原有题号保持不变";
   render();
 };
 
@@ -1921,6 +2295,15 @@ const persistReview = async (questionId, review, message, expand = false) => {
   try {
     const payload = await patchJson(API.questionReviews, { questionId, review });
     reviews = normalizeReviews(payload);
+    const previousQuestion = getQuestion(questionId);
+    bank = await fetchJson(API.questions);
+    const savedQuestion = getQuestion(questionId);
+    const wasPendingPublication = review.status === "passed"
+      && ["candidate", "admin_created", "admin_edited"].includes(previousQuestion?.reviewStatus)
+      && savedQuestion?.reviewStatus === "verified";
+    if (wasPendingPublication) {
+      message = `${message} 已发布到学生端。`;
+    }
     expandedReviewId = expand ? questionId : expandedReviewId === questionId ? null : expandedReviewId;
     statusMessage = message;
     savingReviewIds.delete(questionId);
@@ -1930,6 +2313,28 @@ const persistReview = async (questionId, review, message, expand = false) => {
     card?.querySelectorAll("button").forEach((button) => { button.disabled = false; });
     throw error;
   }
+};
+
+const saveDuplicateReviewStatus = async (questionId, status) => {
+  if (!Object.hasOwn(DUPLICATE_REVIEW_STATUS_META, status)) throw new Error("重复题审查状态无效。");
+  const current = bank.questions.find((question) => question.id === questionId);
+  const duplicateReview = getDuplicateReview(current);
+  if (!current || !duplicateReview) throw new Error("找不到这道重复候选题。");
+  bank = await putJson(API.questions, {
+    ...bank,
+    questions: bank.questions.map((question) => question.id === questionId
+      ? { ...question, duplicateReview: { ...duplicateReview, status } }
+      : question),
+  });
+  const savedQuestion = bank.questions.find((question) => question.id === questionId) || current;
+  statusMessage = status === "kept"
+    ? isQuestionAbnormal(savedQuestion)
+      ? `已确认保留第 ${current.number} 题，但它仍有划线异常，修复前学生端不会抽到。`
+      : `已确认保留第 ${current.number} 题，学生端可以抽到（前提是训练范围包含它）。`
+    : status === "skipped"
+      ? `已标记跳过第 ${current.number} 题；题目仍保留在题库中。`
+      : `第 ${current.number} 题已恢复为重复候选。`;
+  renderKeepingScroll();
 };
 
 const saveReviewForm = async (form) => {
@@ -1963,26 +2368,47 @@ const wireScoringEvents = () => {
   const form = adminApp.querySelector("#scoring-form");
   if (!form) return;
   const preview = form.querySelector("[data-scoring-preview]");
+  const syncMirroredBaseFields = (source) => {
+    if (!source.matches('[name="baseCorrect"], [name="baseWrongPenalty"]')) return;
+    form.querySelectorAll(`[name="${source.name}"]`).forEach((input) => {
+      if (input !== source) input.value = source.value;
+    });
+  };
+  const readActiveValue = (name) => {
+    const selectedMode = form.querySelector('input[name="mode"]:checked')?.value;
+    const selectedCard = [...form.querySelectorAll(".scoring-mode-card")].find((card) => card.querySelector('input[name="mode"]')?.value === selectedMode);
+    return selectedCard?.querySelector(`[name="${name}"]`)?.value ?? "";
+  };
   const syncModeCards = () => {
     const selectedMode = form.querySelector('input[name="mode"]:checked')?.value;
     form.querySelectorAll(".scoring-mode-card").forEach((card) => {
       card.classList.toggle("selected", card.querySelector('input[name="mode"]')?.value === selectedMode);
     });
-    const raw = Object.fromEntries(new FormData(form).entries());
     const config = normalizeScoringConfig({ scoring: {
-      mode: raw.mode,
-      baseCorrect: raw.baseCorrect,
-      baseWrongPenalty: raw.baseWrongPenalty,
-      correctStreakAfter: raw.correctStreakAfter,
-      correctStreakScore: raw.correctStreakScore,
-      wrongStreakAfter: raw.wrongStreakAfter,
-      wrongStreakPenalty: raw.wrongStreakPenalty,
+      mode: selectedMode,
+      baseCorrect: readActiveValue("baseCorrect"),
+      baseWrongPenalty: readActiveValue("baseWrongPenalty"),
+      correctStreakAfter: readActiveValue("correctStreakAfter"),
+      correctStreakScore: readActiveValue("correctStreakScore"),
+      wrongStreakAfter: readActiveValue("wrongStreakAfter"),
+      wrongStreakPenalty: readActiveValue("wrongStreakPenalty"),
     } });
     if (preview) preview.innerHTML = renderScoringPreview(config);
     const modeLabel = form.querySelector(".scoring-preview-heading span");
     if (modeLabel) modeLabel.textContent = `当前：${config.mode === "streak" ? "连续表现模式" : "固定计分模式"}`;
   };
-  form.querySelectorAll("input").forEach((input) => input.addEventListener("input", syncModeCards));
+  form.querySelectorAll(".scoring-mode-card").forEach((card) => card.addEventListener("click", (event) => {
+    if (event.target.closest('input:not([type="radio"])')) return;
+    const radio = card.querySelector('input[name="mode"]');
+    if (radio && !radio.checked) {
+      radio.checked = true;
+      radio.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  }));
+  form.querySelectorAll("input").forEach((input) => input.addEventListener("input", () => {
+    syncMirroredBaseFields(input);
+    syncModeCards();
+  }));
   form.querySelectorAll('input[name="mode"]').forEach((input) => input.addEventListener("change", syncModeCards));
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -2007,6 +2433,7 @@ const wireReviewEvents = () => {
   const volume = adminApp.querySelector("#review-volume");
   const article = adminApp.querySelector("#review-article");
   const status = adminApp.querySelector("#review-status");
+  const duplicate = adminApp.querySelector("#review-duplicate");
   const search = adminApp.querySelector("#review-search");
 
   volume?.addEventListener("change", () => {
@@ -2021,6 +2448,11 @@ const wireReviewEvents = () => {
   });
   status?.addEventListener("change", () => {
     reviewFilters = { ...reviewFilters, status: status.value };
+    statusMessage = "";
+    render();
+  });
+  duplicate?.addEventListener("change", () => {
+    reviewFilters = { ...reviewFilters, duplicate: duplicate.value };
     statusMessage = "";
     render();
   });
@@ -2054,6 +2486,22 @@ const wireReviewEvents = () => {
         }
       } catch (error) {
         window.alert(error instanceof Error ? error.message : "保存审查结果失败。");
+      }
+    });
+  });
+
+  adminApp.querySelectorAll("[data-duplicate-action]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const questionId = button.dataset.questionId;
+      const action = button.dataset.duplicateAction;
+      const statusByAction = { keep: "kept", skip: "skipped", reset: "pending" };
+      if (!questionId || !statusByAction[action]) return;
+      button.disabled = true;
+      try {
+        await saveDuplicateReviewStatus(questionId, statusByAction[action]);
+      } catch (error) {
+        button.disabled = false;
+        window.alert(error instanceof Error ? error.message : "保存重复题审查结果失败。");
       }
     });
   });
@@ -2168,7 +2616,17 @@ const wireSecurityEvents = () => {
 const wireEvents = () => {
   adminApp.querySelector('[data-action="check-update"]')?.addEventListener("click", checkForUpdates);
   adminApp.querySelector('[data-action="logout"]')?.addEventListener("click", () => {
+    const token = adminToken;
+    if (token) {
+      fetch("./api/admin-logout", {
+        method: "POST",
+        headers: { "X-Wenyan-Admin-Token": token, "Content-Type": "application/json" },
+        body: "{}",
+        keepalive: true,
+      }).catch(() => {});
+    }
     adminAuthorized = false;
+    adminToken = null;
     stopUpdatePolling();
     updateModalOpen = false;
     loginError = "";
@@ -2320,6 +2778,13 @@ const wireEvents = () => {
     });
     adminApp.querySelector('[data-action="export-bank"]')?.addEventListener("click", downloadBank);
     adminApp.querySelector('[data-action="download-import-guide"]')?.addEventListener("click", downloadQuestionBankImportGuide);
+    adminApp.querySelector('[data-action="toggle-question-history"]')?.addEventListener("click", () => {
+      showQuestionBankHistory = !showQuestionBankHistory;
+      render();
+    });
+    adminApp.querySelectorAll('[data-action="revoke-question-import"]').forEach((button) => {
+      button.addEventListener("click", () => revokeQuestionBankImport(button.dataset.historyEventId));
+    });
     const mergeButton = adminApp.querySelector('[data-action="merge-bank"]');
     const replaceButton = adminApp.querySelector('[data-action="replace-bank"]');
     const fileInput = adminApp.querySelector("#question-bank-file");
@@ -2497,17 +2962,19 @@ const wireEvents = () => {
 
 const load = async () => {
   try {
-    const [questionBank, leaderboardData, questionReviews, answerRecordData] = await Promise.all([
+    const [questionBank, leaderboardData, questionReviews, answerRecordData, questionBankHistoryData] = await Promise.all([
       fetchJson(API.questions),
       fetchJson(API.leaderboard),
       fetchJson(API.questionReviews),
       fetchJson(API.answerRecords),
+      fetchJson(API.questionBankHistory),
     ]);
     if (!Array.isArray(questionBank.questions) || !questionBank.questions.length) throw new Error("题库中没有可编辑的题目。");
     bank = questionBank;
     leaderboard = normalizeLeaderboard(leaderboardData);
     reviews = normalizeReviews(questionReviews);
     answerRecords = normalizeAnswerRecords(answerRecordData);
+    questionBankHistory = normalizeQuestionBankHistory(questionBankHistoryData);
     selectedQuestionId = bank.questions[0].id;
     render();
     startUpdateMonitoring();
@@ -2518,6 +2985,7 @@ const load = async () => {
 
 window.addEventListener("pagehide", () => {
   adminAuthorized = false;
+  adminToken = null;
   stopUpdatePolling();
   updateModalOpen = false;
 });
@@ -2525,6 +2993,7 @@ window.addEventListener("pagehide", () => {
 window.addEventListener("pageshow", (event) => {
   if (!event.persisted) return;
   adminAuthorized = false;
+  adminToken = null;
   loginError = "";
   renderLogin();
 });

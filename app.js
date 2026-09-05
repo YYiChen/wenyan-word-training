@@ -19,6 +19,8 @@ const FALLBACK_CONFIG = {
     wrongStreakPenalty: 2,
   },
 };
+const MIN_DURATION_SECONDS = 10;
+const MAX_DURATION_SECONDS = 3600;
 const FONT_SCALE_STORAGE_KEY = "wenyan-quiz-font-scale";
 const FONT_SCALE_MIN = 1;
 const FONT_SCALE_MAX = 2;
@@ -30,6 +32,8 @@ let state = null;
 let startSelection = { volumes: ["all"], articleIds: ["all"] };
 let leaderboard = [];
 let answerRecords = [];
+let feedbackEffectsController = null;
+let feedbackEffectPlayedKey = "";
 
 const escapeHtml = (value) => String(value ?? "")
   .replaceAll("&", "&amp;")
@@ -180,9 +184,14 @@ const createAnswerRecordId = () => `record-${Date.now()}-${Math.random().toStrin
 
 const getQuizConfig = () => {
   const quizDefaults = bank?.quizDefaults || {};
+  const duration = Number(quizDefaults.durationSeconds);
+  const durationSeconds = Number.isInteger(duration) && duration >= MIN_DURATION_SECONDS && duration <= MAX_DURATION_SECONDS
+    ? duration
+    : FALLBACK_CONFIG.durationSeconds;
   return {
     ...FALLBACK_CONFIG,
     ...quizDefaults,
+    durationSeconds,
     scoring: normalizeScoringConfig(quizDefaults),
   };
 };
@@ -281,8 +290,8 @@ const getWordOccurrences = (sentence, word) => {
 };
 
 const validateBank = (payload) => {
-  if (!payload || !Array.isArray(payload.questions) || payload.questions.length === 0) {
-    throw new Error("题库中没有可用题目。");
+  if (!payload || !Array.isArray(payload.questions)) {
+    throw new Error("题库格式无效：缺少 questions 数组。");
   }
 
   const questions = payload.questions;
@@ -307,32 +316,35 @@ const validateBank = (payload) => {
       .filter((article) => article && article.id)
       .map((article) => [article.id, article]),
   );
-  questions.forEach((question) => {
+  const normalizedQuestions = questions.map((question) => {
     const article = catalogById.get(question.articleId);
     if (article?.volume && question.volume && article.volume !== question.volume) {
       throw new Error(`题目 ${question.number ?? "未知"} 的教材册与所属篇目不一致。`);
     }
     const occurrences = getWordOccurrences(question.sentence, question.word);
-    if (occurrences.length === 0) {
-      throw new Error(`题目 ${question.number ?? "未知"} 的考查实词不在原句中。`);
-    }
+    let underlineIssue = "";
     let targetOccurrence = question.targetOccurrence == null ? 1 : Number(question.targetOccurrence);
     const targetStart = question.targetStart == null ? null : Number(question.targetStart);
     if (question.targetOccurrence == null && Number.isInteger(targetStart) && targetStart >= 0) {
       const startIndex = occurrences.findIndex((occurrence) => occurrence.start === targetStart);
       if (startIndex >= 0) targetOccurrence = startIndex + 1;
     }
-    if (!Number.isInteger(targetOccurrence) || targetOccurrence < 1 || targetOccurrence > occurrences.length) {
-      throw new Error(`题目 ${question.number ?? "未知"} 的 targetOccurrence 无效。`);
+    if (occurrences.length === 0) {
+      underlineIssue = "考查实词不在原句中";
+    } else if (!Number.isInteger(targetOccurrence) || targetOccurrence < 1 || targetOccurrence > occurrences.length) {
+      underlineIssue = "targetOccurrence 与原句中的实际出现次数不一致";
+    } else if (targetStart != null && (!Number.isInteger(targetStart) || targetStart !== occurrences[targetOccurrence - 1].start)) {
+      underlineIssue = "targetStart 与考查实词位置不一致";
     }
-    if (targetStart != null) {
-      if (!Number.isInteger(targetStart) || targetStart !== occurrences[targetOccurrence - 1].start) {
-        throw new Error(`题目 ${question.number ?? "未知"} 的 targetStart 与考查实词位置不一致。`);
-      }
-    }
+    if (!underlineIssue) return question;
+    return {
+      ...question,
+      reviewStatus: "abnormal",
+      reviewNote: `${String(question.reviewNote || "").trim()}${question.reviewNote ? "；" : ""}系统检测：${underlineIssue}，请人工复核。`,
+    };
   });
 
-  return payload;
+  return { ...payload, questions: normalizedQuestions };
 };
 
 const getCatalog = () => Array.isArray(bank?.catalog) ? bank.catalog : [];
@@ -381,7 +393,9 @@ const getSelectedQuestions = () => {
   const selectedVolumes = new Set(startSelection.volumes);
   const selectedArticleIds = new Set(startSelection.articleIds);
   return bank.questions.filter((question) => (
-    selectedVolumes.has(question.volume) && selectedArticleIds.has(question.articleId)
+    !["abnormal", "candidate"].includes(question.reviewStatus)
+    && !["pending", "skipped"].includes(question.duplicateReview?.status)
+    && selectedVolumes.has(question.volume) && selectedArticleIds.has(question.articleId)
   ));
 };
 
@@ -432,6 +446,9 @@ const renderError = (message) => {
 
 const renderStart = () => {
   const config = getQuizConfig();
+  const hasQuestions = bank.questions.length > 0;
+  const abnormalCount = bank.questions.filter((question) => question.reviewStatus === "abnormal").length;
+  const candidateCount = bank.questions.filter((question) => question.reviewStatus === "candidate").length;
   const volumes = getBooks().map((book) => book.label);
   const selectedVolumes = normalizeSelection(startSelection.volumes, volumes);
   const availableArticles = getAvailableArticles(selectedVolumes);
@@ -460,12 +477,12 @@ const renderStart = () => {
         <div class="brand-mark" aria-hidden="true">文</div>
         <p class="eyebrow">文言实词 · 限时训练</p>
         <h1 id="start-title">在语境里，<br />认出那个词。</h1>
-        <p class="start-subtitle">从教材原句中辨认实词义项。两分钟内连续答题，看看你能拿到多少分。</p>
-        <p class="start-note">题库覆盖必修与选择性必修五册教材的课内文章；新增候选题已标记待复核，答题时只改变选项顺序。</p>
+        <p class="start-subtitle">从教材原句中辨认实词义项。在 ${formatSeconds(config.durationSeconds)} 内连续答题，看看你能拿到多少分。</p>
+        <p class="start-note">${hasQuestions ? `题库覆盖必修与选择性必修教材的课内文章；${candidateCount ? `${candidateCount} 道候选题待教师复核，` : ""}${abnormalCount ? `${abnormalCount} 道划线异常题已自动跳过，` : ""}答题时只改变选项顺序。` : "当前未内置题库，请先进入管理后台导入题库后再开始答题。"}</p>
       </div>
       <div class="start-card">
         <p class="card-label">选择训练范围</p>
-        <p class="filter-note">教材册和篇目都可以多选；勾选“全部”会直接勾上下面的所有项目。</p>
+        <p class="filter-note">${hasQuestions ? "教材册和篇目都可以多选；勾选“全部”会直接勾上下面的所有项目。" : "当前是空白题库，导入题库后这里会显示教材册和篇目。"}</p>
         <fieldset class="filter-field">
           <legend>教材册 <span>可多选</span></legend>
           <div class="filter-choice-list volume-choice-list" role="group" aria-label="选择教材册">
@@ -502,7 +519,7 @@ const renderStart = () => {
           <div class="rule-item rule-item-wide"><span>本局规则</span><strong>${escapeHtml(scoringSummary(config))}</strong></div>
         </div>
         <div class="button-stack">
-          <button class="primary-button" type="button" data-action="start">开始答题</button>
+          <button class="primary-button" type="button" data-action="start" ${hasQuestions ? "" : "disabled"}>开始答题</button>
           <button class="secondary-button" type="button" data-action="leaderboard">查看排行榜</button>
           <button class="secondary-button" type="button" data-action="answer-records">查看答题记录</button>
         </div>
@@ -787,6 +804,39 @@ const renderOptions = (question) => question.options.map((option) => {
   `;
 }).join("");
 
+const getFeedbackEffectType = (isCorrect, answerDetail) => {
+  if (answerDetail?.tier === "streak") return isCorrect ? "super-correct" : "super-wrong";
+  return isCorrect ? "correct" : "wrong";
+};
+
+const destroyFeedbackEffects = () => {
+  feedbackEffectsController?.destroy();
+  feedbackEffectsController = null;
+};
+
+const mountFeedbackEffects = () => {
+  const stage = app.querySelector("[data-feedback-effects-stage]");
+  const canvas = app.querySelector("[data-feedback-effects-canvas]");
+  if (!stage || !canvas || !window.WenyanFeedbackEffects?.create || !state?.answeredCurrent) return;
+
+  const effectType = stage.dataset.feedbackEffect;
+  feedbackEffectsController = window.WenyanFeedbackEffects.create({
+    stage,
+    canvas,
+    onResult(type) {
+      stage.classList.remove("result-correct", "result-super-correct", "result-wrong", "result-super-wrong");
+      void stage.offsetWidth;
+      stage.classList.add(`result-${type}`);
+    },
+  });
+
+  const effectKey = `${state.currentIndex}:${state.answerDetails.length}`;
+  if (effectType && effectKey !== feedbackEffectPlayedKey) {
+    feedbackEffectsController.play(effectType);
+    feedbackEffectPlayedKey = effectKey;
+  }
+};
+
 const renderFeedback = (question) => {
   if (!state.answeredCurrent) return "";
   const isCorrect = state.selectedKey === question.answer;
@@ -802,17 +852,21 @@ const renderFeedback = (question) => {
       ? `当前连续答对 ${answerDetail?.correctStreak || 0} 题`
       : `当前连续答错 ${answerDetail?.wrongStreak || 0} 题`
     : "";
+  const effectType = getFeedbackEffectType(isCorrect, answerDetail);
   return `
-    <div class="feedback-panel ${isCorrect ? "success" : "error"} ${resultClass}" role="status" aria-live="polite">
-      <div class="score-event" aria-label="${escapeHtml(`${scoreLabel} ${scoreText} 分`)}">
-        <span class="score-event-icon" aria-hidden="true">${isCorrect ? (isSuper ? "★" : "✓") : (isSuper ? "!" : "×")}</span>
-        <span class="score-event-copy"><strong>${escapeHtml(scoreLabel)}</strong><b>${escapeHtml(scoreText)} 分</b></span>
+    <div class="feedback-panel feedback-stage ${isCorrect ? "success" : "error"} ${resultClass} result-${effectType}" data-feedback-effects-stage data-feedback-effect="${effectType}" role="status" aria-live="polite">
+      <canvas class="feedback-effects-canvas" data-feedback-effects-canvas aria-hidden="true"></canvas>
+      <div class="feedback-content">
+        <div class="score-event" aria-label="${escapeHtml(`${scoreLabel} ${scoreText} 分`)}">
+          <span class="score-event-icon" aria-hidden="true">${isCorrect ? (isSuper ? "★" : "✓") : (isSuper ? "!" : "×")}</span>
+          <span class="score-event-copy"><strong>${escapeHtml(scoreLabel)}</strong><b>${escapeHtml(scoreText)} 分</b></span>
+        </div>
+        <div class="feedback-title">${isCorrect ? "回答正确！" : "回答错误"}</div>
+        ${streakText ? `<p class="feedback-streak">${escapeHtml(streakText)}</p>` : ""}
+        ${!isCorrect ? `<p class="feedback-answer">你的选择：${escapeHtml(selectedOption?.key || "未选择")}　正确答案：${escapeHtml(answerOption?.key || question.answer)}</p>` : ""}
+        <p>${escapeHtml(question.explanation || "本题暂无补充解析。")}</p>
+        <button class="primary-button" type="button" data-action="next">${state.currentIndex + 1 >= state.questions.length ? "查看成绩" : "下一题"}</button>
       </div>
-      <div class="feedback-title">${isCorrect ? "回答正确！" : "回答错误"}</div>
-      ${streakText ? `<p class="feedback-streak">${escapeHtml(streakText)}</p>` : ""}
-      ${!isCorrect ? `<p class="feedback-answer">你的选择：${escapeHtml(selectedOption?.key || "未选择")}　正确答案：${escapeHtml(answerOption?.key || question.answer)}</p>` : ""}
-      <p>${escapeHtml(question.explanation || "本题暂无补充解析。")}</p>
-      <button class="primary-button" type="button" data-action="next">${state.currentIndex + 1 >= state.questions.length ? "查看成绩" : "下一题"}</button>
     </div>
   `;
 };
@@ -820,7 +874,7 @@ const renderFeedback = (question) => {
 const renderQuiz = () => {
   const question = getCurrentQuestion();
   const timerClass = state.remainingSeconds <= 10 ? "danger" : state.remainingSeconds <= 30 ? "warning" : "";
-  const isContextMeaning = question.type === "context_meaning";
+  const isContextMeaning = !question.type || question.type === "context_meaning";
   const questionTitle = isContextMeaning
     ? renderSentence(question)
     : escapeHtml(question.stem || question.sentence || "请选择答案");
@@ -828,6 +882,7 @@ const renderQuiz = () => {
     ? `句中“${escapeHtml(question.word || "")}”的意思是：`
     : escapeHtml(question.stem ? "请选择最符合题意的一项：" : "请选择答案：");
 
+  destroyFeedbackEffects();
   app.innerHTML = `
     <section class="quiz-shell" aria-labelledby="question-title">
       <header class="topbar">
@@ -873,9 +928,11 @@ const renderQuiz = () => {
   app.querySelector('[data-action="font-decrease"]').addEventListener("click", () => adjustQuizFontScale(-FONT_SCALE_STEP));
   app.querySelector('[data-action="font-increase"]').addEventListener("click", () => adjustQuizFontScale(FONT_SCALE_STEP));
   app.querySelector('[data-action="font-reset"]').addEventListener("click", () => setQuizFontScale(DEFAULT_FONT_SCALE));
+  mountFeedbackEffects();
 };
 
 const renderResult = () => {
+  destroyFeedbackEffects();
   const duration = state.durationSeconds;
   const usedSeconds = Math.min(duration, Math.max(0, Math.floor((state.finishedAt - state.startedAt) / 1000)));
   const total = state.answered;
@@ -955,6 +1012,15 @@ const renderResult = () => {
   }
 };
 
+const updateQuizTimerDisplay = () => {
+  const timerBox = app.querySelector(".timer-box");
+  const timerValue = timerBox?.querySelector("strong");
+  if (!timerBox || !timerValue || !state) return;
+  timerValue.textContent = formatSeconds(state.remainingSeconds);
+  timerBox.classList.toggle("danger", state.remainingSeconds <= 10);
+  timerBox.classList.toggle("warning", state.remainingSeconds > 10 && state.remainingSeconds <= 30);
+};
+
 const startTimer = () => {
   window.clearInterval(timerId);
   timerId = window.setInterval(() => {
@@ -966,7 +1032,10 @@ const startTimer = () => {
       finishGame(completedAll ? "completed" : "timeout");
       return;
     }
-    renderQuiz();
+    // 答题反馈是一次性的视觉事件。答题后只更新计时器，避免每秒重建反馈 DOM，
+    // 让基础加分/扣分或连击动效被反复重置，看起来像一直在动。
+    if (state.answeredCurrent) updateQuizTimerDisplay();
+    else renderQuiz();
   }, 1000);
 };
 
@@ -993,7 +1062,7 @@ const startGame = async () => {
   try {
     await refreshBankBeforeStart();
   } catch (error) {
-    window.alert(error instanceof Error ? `读取最新题库和计分规则失败：${error.message}` : "读取最新题库和计分规则失败。 ");
+    window.alert(error instanceof Error ? `读取最新题库和计分规则失败：${error.message}` : "读取最新题库和计分规则失败。");
     return;
   }
   const config = getQuizConfig();
@@ -1039,6 +1108,7 @@ const startGame = async () => {
     finishedAt: 0,
     startedAt: Date.now(),
   };
+  feedbackEffectPlayedKey = "";
   renderQuiz();
   startTimer();
 };

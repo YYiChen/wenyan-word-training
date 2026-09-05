@@ -12,20 +12,23 @@
     wrongStreakAfter: 2,
     wrongStreakPenalty: 2,
   });
+  const MAX_STREAK_THRESHOLD = 5;
 
   const asNonNegativeInteger = (value, fallback) => {
     const number = Number(value);
     return Number.isInteger(number) && number >= 0 ? number : fallback;
   };
 
-  const asPositiveInteger = (value, fallback) => {
+  const asPositiveInteger = (value, fallback, maximum = Number.POSITIVE_INFINITY) => {
     const number = Number(value);
-    return Number.isInteger(number) && number >= 1 ? number : fallback;
+    return Number.isInteger(number) && number >= 1 && number <= maximum ? number : fallback;
   };
 
   const normalizeScoringConfig = (quizDefaults = {}) => {
     const defaults = quizDefaults && typeof quizDefaults === "object" ? quizDefaults : {};
-    const raw = defaults.scoring && typeof defaults.scoring === "object" ? defaults.scoring : {};
+    const raw = defaults.scoring && typeof defaults.scoring === "object"
+      ? defaults.scoring
+      : (Object.prototype.hasOwnProperty.call(defaults, "mode") ? defaults : {});
     const legacyWrongPenalty = Math.abs(Number(defaults.wrongScore));
     return {
       mode: raw.mode === "streak" ? "streak" : "fixed",
@@ -34,9 +37,9 @@
         raw.baseWrongPenalty ?? (Number.isFinite(legacyWrongPenalty) ? legacyWrongPenalty : null),
         DEFAULT_SCORING_CONFIG.baseWrongPenalty,
       ),
-      correctStreakAfter: asPositiveInteger(raw.correctStreakAfter, DEFAULT_SCORING_CONFIG.correctStreakAfter),
+      correctStreakAfter: asPositiveInteger(raw.correctStreakAfter, DEFAULT_SCORING_CONFIG.correctStreakAfter, MAX_STREAK_THRESHOLD),
       correctStreakScore: asNonNegativeInteger(raw.correctStreakScore, DEFAULT_SCORING_CONFIG.correctStreakScore),
-      wrongStreakAfter: asPositiveInteger(raw.wrongStreakAfter, DEFAULT_SCORING_CONFIG.wrongStreakAfter),
+      wrongStreakAfter: asPositiveInteger(raw.wrongStreakAfter, DEFAULT_SCORING_CONFIG.wrongStreakAfter, MAX_STREAK_THRESHOLD),
       wrongStreakPenalty: asNonNegativeInteger(raw.wrongStreakPenalty, DEFAULT_SCORING_CONFIG.wrongStreakPenalty),
     };
   };
@@ -86,6 +89,7 @@
 
   return {
     DEFAULT_SCORING_CONFIG,
+    MAX_STREAK_THRESHOLD,
     normalizeScoringConfig,
     serializeScoringConfig,
     calculateScoreEvent,
