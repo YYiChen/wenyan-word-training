@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -92,3 +93,91 @@ def ensure_leaderboard() -> None:
     except (OSError, json.JSONDecodeError, ValueError) as error:
         raise RuntimeError(f"旧排行榜迁移失败，请检查 {LEGACY_LEADERBOARD_PATH}：{error}") from error
 
+
+def save_quiz_result(
+    record: dict[str, Any],
+    name: str,
+    add_to_leaderboard: bool,
+) -> dict[str, Any]:
+    """Persist one solo result and its optional idempotent leaderboard entry.
+
+    The caller owns the process-wide write lock.  This service deliberately
+    keeps the existing two-file write order and response payload unchanged.
+    """
+    current_records = load_answer_records()
+    record_changed = False
+    existing_index = next(
+        (index for index, item in enumerate(current_records) if item["id"] == record["id"]),
+        None,
+    )
+    if existing_index is None:
+        next_records = prune_answer_records(validate_answer_records([*current_records, record]))
+        record_changed = True
+    else:
+        existing = current_records[existing_index]
+        # An anonymous retry must not erase a name that was already attached
+        # to this idempotent result.
+        requested_name = name or existing["name"]
+        if existing["name"] != requested_name:
+            current_records[existing_index] = {**existing, "name": requested_name}
+            record_changed = True
+        next_records = prune_answer_records(validate_answer_records(current_records))
+
+    current_leaderboard = validate_leaderboard(read_json(LEADERBOARD_PATH, []))
+    next_leaderboard = current_leaderboard
+    if add_to_leaderboard:
+        leaderboard_entry_id = f"score-{record['id']}"
+        entry = {
+            "id": leaderboard_entry_id,
+            "recordId": record["id"],
+            "name": name,
+            "score": record["score"],
+            "createdAt": record["finishedAt"] or int(time.time() * 1000),
+            "context": record["context"],
+        }
+        matching_index = next(
+            (
+                index for index, item in enumerate(current_leaderboard)
+                if item.get("recordId") == record["id"] or item.get("id") == leaderboard_entry_id
+            ),
+            None,
+        )
+        if matching_index is None:
+            next_leaderboard = validate_leaderboard([*current_leaderboard, entry])
+        else:
+            merged = {**current_leaderboard[matching_index], **entry}
+            next_leaderboard = validate_leaderboard([
+                merged if index == matching_index else item
+                for index, item in enumerate(current_leaderboard)
+            ])
+
+    if record_changed:
+        backup_and_write(ANSWER_RECORDS_PATH, next_records, ANSWER_RECORDS_BACKUP_DIR)
+    if next_leaderboard != current_leaderboard:
+        backup_and_write(LEADERBOARD_PATH, next_leaderboard, LEADERBOARD_BACKUP_DIR)
+    saved_record = next((item for item in next_records if item["id"] == record["id"]), record)
+    return {
+        "record": saved_record,
+        "leaderboard": next_leaderboard,
+        "leaderboardSaved": add_to_leaderboard,
+    }
+
+
+def save_pk_result(record: dict[str, Any]) -> dict[str, Any]:
+    """Persist one PK result exactly once per match id."""
+    current_records = load_answer_records()
+    existing = next(
+        (
+            item for item in current_records
+            if item.get("recordType") == "pk"
+            and item.get("matchId") == record["matchId"]
+        ),
+        None,
+    )
+    if existing is not None:
+        return {"record": existing, "recordSaved": False}
+
+    next_records = prune_answer_records(validate_answer_records([*current_records, record]))
+    backup_and_write(ANSWER_RECORDS_PATH, next_records, ANSWER_RECORDS_BACKUP_DIR)
+    saved_record = next((item for item in next_records if item["id"] == record["id"]), record)
+    return {"record": saved_record, "recordSaved": True}

@@ -135,6 +135,8 @@ from server_records import (
     ensure_leaderboard as _ensure_leaderboard,
     filter_student_answer_records,
     load_answer_records as _load_answer_records,
+    save_pk_result as _save_pk_result,
+    save_quiz_result as _save_quiz_result,
 )
 
 WRITE_LOCK = Lock()
@@ -226,6 +228,20 @@ def ensure_answer_records() -> None:
 def ensure_leaderboard() -> None:
     _prepare_record_services()
     _ensure_leaderboard()
+
+
+def save_quiz_result(
+    record: dict[str, Any],
+    name: str,
+    add_to_leaderboard: bool,
+) -> dict[str, Any]:
+    _prepare_record_services()
+    return _save_quiz_result(record, name, add_to_leaderboard)
+
+
+def save_pk_result(record: dict[str, Any]) -> dict[str, Any]:
+    _prepare_record_services()
+    return _save_pk_result(record)
 
 
 
@@ -720,66 +736,8 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
                 add_to_leaderboard = bool(payload.get("addToLeaderboard", bool(name))) and bool(name)
                 record = validate_answer_record({**raw_record, "name": name or "未命名"})
                 with WRITE_LOCK:
-                    current_records = load_answer_records()
-                    record_changed = False
-                    existing_index = next(
-                        (index for index, item in enumerate(current_records) if item["id"] == record["id"]),
-                        None,
-                    )
-                    if existing_index is None:
-                        next_records = prune_answer_records(validate_answer_records([*current_records, record]))
-                        record_changed = True
-                    else:
-                        existing = current_records[existing_index]
-                        # An anonymous retry must not erase a name that was already
-                        # attached to this idempotent result.
-                        requested_name = name or existing["name"]
-                        if existing["name"] != requested_name:
-                            current_records[existing_index] = {**existing, "name": requested_name}
-                            record_changed = True
-                        next_records = prune_answer_records(validate_answer_records(current_records))
-
-                    current_leaderboard = validate_leaderboard(read_json(LEADERBOARD_PATH, []))
-                    next_leaderboard = current_leaderboard
-                    if add_to_leaderboard:
-                        leaderboard_entry_id = f"score-{record['id']}"
-                        entry = {
-                            "id": leaderboard_entry_id,
-                            "recordId": record["id"],
-                            "name": name,
-                            "score": record["score"],
-                            "createdAt": record["finishedAt"] or int(time.time() * 1000),
-                            "context": record["context"],
-                        }
-                        matching_index = next(
-                            (
-                                index for index, item in enumerate(current_leaderboard)
-                                if item.get("recordId") == record["id"] or item.get("id") == leaderboard_entry_id
-                            ),
-                            None,
-                        )
-                        if matching_index is None:
-                            next_leaderboard = validate_leaderboard([*current_leaderboard, entry])
-                        else:
-                            merged = {**current_leaderboard[matching_index], **entry}
-                            next_leaderboard = validate_leaderboard([
-                                merged if index == matching_index else item
-                                for index, item in enumerate(current_leaderboard)
-                            ])
-
-                    if record_changed:
-                        backup_and_write(ANSWER_RECORDS_PATH, next_records, ANSWER_RECORDS_BACKUP_DIR)
-                    if next_leaderboard != current_leaderboard:
-                        backup_and_write(LEADERBOARD_PATH, next_leaderboard, LEADERBOARD_BACKUP_DIR)
-                    saved_record = next((item for item in next_records if item["id"] == record["id"]), record)
-                self.send_json({
-                    "ok": True,
-                    "data": {
-                        "record": saved_record,
-                        "leaderboard": next_leaderboard,
-                        "leaderboardSaved": add_to_leaderboard,
-                    },
-                })
+                    result = save_quiz_result(record, name, add_to_leaderboard)
+                self.send_json({"ok": True, "data": result})
                 return
             if route == "/api/pk-results":
                 if not isinstance(payload, dict):
@@ -789,31 +747,8 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
                     raise ValueError("PK 答题结果请求缺少 record 对象。")
                 record = validate_pk_record(raw_record)
                 with WRITE_LOCK:
-                    current_records = load_answer_records()
-                    existing = next(
-                        (
-                            item for item in current_records
-                            if item.get("recordType") == "pk"
-                            and item.get("matchId") == record["matchId"]
-                        ),
-                        None,
-                    )
-                    if existing is not None:
-                        saved_record = existing
-                        next_records = current_records
-                        record_saved = False
-                    else:
-                        next_records = prune_answer_records(validate_answer_records([*current_records, record]))
-                        backup_and_write(ANSWER_RECORDS_PATH, next_records, ANSWER_RECORDS_BACKUP_DIR)
-                        saved_record = next((item for item in next_records if item["id"] == record["id"]), record)
-                        record_saved = True
-                self.send_json({
-                    "ok": True,
-                    "data": {
-                        "record": saved_record,
-                        "recordSaved": record_saved,
-                    },
-                })
+                    result = save_pk_result(record)
+                self.send_json({"ok": True, "data": result})
                 return
             if route == "/api/answer-records":
                 validator = validate_pk_record if isinstance(payload, dict) and payload.get("recordType") == "pk" else validate_answer_record
