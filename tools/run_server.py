@@ -36,7 +36,7 @@ from update_service import UpdateManager
 
 
 APP_NAME = "wenyan-word-training"
-APP_VERSION = "1.4.8"
+APP_VERSION = "1.4.9"
 
 
 # 开发时，网页与题库数据都在项目根目录；封装后，网页资源在 PyInstaller
