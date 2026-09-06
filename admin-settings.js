@@ -57,8 +57,8 @@ const renderBookSettings = () => `
     <div class="settings-list">
       ${getBooks().map((book) => `
         <div class="settings-list-item">
-          <div><strong>${escapeHtml(book.label)}</strong><code>${escapeHtml(book.id)}</code><p>当前关联 ${getCatalog().filter((article) => article.volume === book.label).length} 篇文章</p></div>
-          ${getCatalog().some((article) => article.volume === book.label) ? `<span class="settings-badge">使用中</span>` : `<button class="admin-danger admin-compact-button" type="button" data-action="delete-book" data-book-id="${escapeHtml(book.id)}">删除</button>`}
+          <div><strong>${escapeHtml(book.label)}</strong><code>${escapeHtml(book.id)}</code><p>当前关联 ${getCatalog().filter((article) => article.bookId === book.id).length} 篇文章</p></div>
+          ${getCatalog().some((article) => article.bookId === book.id) ? `<span class="settings-badge">使用中</span>` : `<button class="admin-danger admin-compact-button" type="button" data-action="delete-book" data-book-id="${escapeHtml(book.id)}">删除</button>`}
         </div>
       `).join("")}
     </div>
@@ -82,9 +82,9 @@ const renderArticleSettings = () => `
         <input class="admin-input" name="title" placeholder="例如：五代史伶官传序" maxlength="80" required />
       </label>
       <label class="editor-field">所属教材册
-        <select class="admin-select" name="volume" required>
+        <select class="admin-select" name="bookId" required>
           <option value="">请选择教材册</option>
-          ${getBooks().map((book) => `<option value="${escapeHtml(book.label)}">${escapeHtml(book.label)}</option>`).join("")}
+          ${getBooks().map((book) => `<option value="${escapeHtml(book.id)}">${escapeHtml(book.label)}</option>`).join("")}
         </select>
       </label>
       <label class="editor-field">单元（可选）
@@ -256,13 +256,12 @@ const readScoringForm = (form) => {
 const saveScoringSettings = async (form) => {
   const { durationSeconds, scoring } = readScoringForm(form);
   const quizDefaults = bank.quizDefaults && typeof bank.quizDefaults === "object" ? bank.quizDefaults : {};
+  const { correctScore: _legacyCorrectScore, wrongScore: _legacyWrongScore, ...canonicalDefaults } = quizDefaults;
   await saveBank({
     ...bank,
     quizDefaults: {
-      ...quizDefaults,
+      ...canonicalDefaults,
       durationSeconds,
-      correctScore: scoring.baseCorrect,
-      wrongScore: -scoring.baseWrongPenalty,
       scoring,
     },
   }, "计分机制已保存并启用；新开的训练局将使用新规则。");

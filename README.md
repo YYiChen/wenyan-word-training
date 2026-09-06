@@ -109,4 +109,4 @@ GitHub 仓库只包含 `public-data/questions.json` 这份每篇文章 1-3 题�
 - `release/v1.4.11/`：将管理员登录与密码修改迁移到 Windows Launcher；浏览器后台改为一次性 ticket 换取内存会话，正式服务关闭浏览器密码登录，公开源码包和 Windows 包不包含题库
 - `release/v1.4.13/`：题库升级为 Schema v4 单文件真相源；导入由服务端统一预览、校验、合并和撤销，支持目录 ID 映射、重复候选、审查状态迁移和导入/导出历史；公开源码包和 Windows 包继续不包含题库及本机数据
 
-题库 JSON 的完整格式、可直接复制的模版和当前全部目录，可以在后台“题库管理”区域下载唯一文件 `JSON模版导入说明.md`。普通新增题使用 `wenyan-question-import` 1.0；完整题库导出使用 `wenyan-question-bank` 4.0，并保留题库 ID、题目 ID、审查和重复处理结果。题目必须用 `type` 引用题型 ID、用 `articleId` 引用篇目 ID，篇目用 `bookId` 引用教材册 ID；`label`/`title` 只是页面显示名称。一道题只保存一个考点词，同一个词在句中多次出现时用 `targetOccurrence` 指定位置，不再保存 `targetStart`。普通导入的新题由服务端生成 ID 并进入待审，导入前会进行预览和校验。
+题库 JSON 的完整格式、可直接复制的模版和当前全部目录，可以在后台“题库管理”区域下载唯一文件 `JSON模版导入说明.md`。普通新增题使用 `wenyan-question-import` 1.0；完整题库导出使用 `wenyan-question-bank` 4.0，并保留题库 ID、题目 ID、审查和重复处理结果。题目必须用 `type` 引用题型 ID、用 `articleId` 引用篇目 ID，篇目用 `bookId` 引用教材册 ID；`label`/`title` 只是页面显示名称。一道题只保存一个考点词，同一个词在句中多次出现时用 `targetOccurrence` 指定位置，不再保存 `targetStart`。普通导入的新题由服务端生成 ID 并进入待审，导入前会进行预览和校验；旧的直写导入接口已停用，必须使用 `/api/question-bank-import/preview` 后再调用 `/api/question-bank-import/apply`。

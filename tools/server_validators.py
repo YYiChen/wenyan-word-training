@@ -1356,7 +1356,17 @@ def validate_question_bank_v4(payload: Any) -> dict[str, Any]:
             "title": title,
             "author": str(item.get("author", "")).strip(),
         })
-    defaults = dict(payload.get("quizDefaults") or {}); defaults["durationSeconds"] = validate_duration_seconds(defaults); defaults["scoring"] = validate_scoring_config(defaults)
+    raw_defaults_payload = payload.get("quizDefaults")
+    if raw_defaults_payload is not None and not isinstance(raw_defaults_payload, dict):
+        raise ValueError("题库的 quizDefaults 必须是对象。")
+    raw_defaults = dict(raw_defaults_payload or {})
+    # v4 stores the scoring object as the canonical contract.  The legacy
+    # correctScore/wrongScore fields are still accepted as input by
+    # validate_scoring_config, but must not be carried into a v4 write.
+    defaults = {
+        "durationSeconds": validate_duration_seconds(raw_defaults),
+        "scoring": validate_scoring_config(raw_defaults),
+    }
     used, questions = set(), []
     for pos, raw in enumerate(raw_questions, 1): questions.append(_v4_question(raw, pos, used, article_ids, type_ids))
     numbers = [q["number"] for q in questions]
@@ -1376,9 +1386,22 @@ def question_bank_diagnostics(bank: dict[str, Any]) -> dict[str, Any]:
     issues = {q["id"]: question_issues(q) for q in bank["questions"]}; availability = {}
     for q in bank["questions"]:
         review = bank["workflow"]["reviews"][q["id"]]; decision = decisions.get(q["id"])
+        question_issues_for_id = issues[q["id"]]
         duplicate_blocked = q["id"] in group_members and decision != "kept"
-        playable = not issues[q["id"]] and review["status"] == "passed" and not duplicate_blocked
-        availability[q["id"]] = {"playable": playable, "issues": issues[q["id"]], "reason": "playable" if playable else "blocked"}
+        playable = not question_issues_for_id and review["status"] == "passed" and not duplicate_blocked
+        if question_issues_for_id:
+            reason = "invalid"
+        elif review["status"] == "pending":
+            reason = "review_pending"
+        elif review["status"] == "needs_revision":
+            reason = "review_needs_revision"
+        elif review["status"] == "skipped":
+            reason = "review_skipped"
+        elif duplicate_blocked:
+            reason = "duplicate_skipped" if decision == "skipped" else "duplicate_pending"
+        else:
+            reason = "playable" if playable else "blocked"
+        availability[q["id"]] = {"playable": playable, "issues": question_issues_for_id, "reason": reason}
     return {"issues": issues, "availability": availability, "pendingReviewCount": sum(r["status"] == "pending" for r in bank["workflow"]["reviews"].values())}
 
 def _enrich_question_views(bank: dict[str, Any], include_workflow: bool) -> dict[str, Any]:

@@ -196,7 +196,7 @@ PyInstaller 解包后的运行根目录由 `sys._MEIPASS` 决定，题库和旁�
 
 ## 8. 发布架构
 
-`tools/build_release.py` 只从 `version.json` 读取版本。当前 `RUNTIME_WEB_FILES` 包含两个 HTML、学生/后台 JS、两个 CSS、`version.json` 和应用图标；`RUNTIME_PYTHON_FILES` 包含服务、启动器、更新器和所有 `server_*.py`。`SOURCE_FILES` 由这些运行清单加 `.gitignore` 和使用说明组成。
+`tools/build_release.py` 只从 `version.json` 读取版本。当前 `RUNTIME_WEB_FILES` 包含两个 HTML、学生/后台 JS、三个 CSS、`version.json` 和应用图标；`RUNTIME_PYTHON_FILES` 包含服务、启动器、更新器和所有 `server_*.py`。`SOURCE_FILES` 由这些运行清单加 `.gitignore` 和使用说明组成。
 
 当前清单的实际内容如下；以后新增运行依赖必须在对应清单中显式加入：
 
@@ -265,4 +265,4 @@ RUNTIME_PYTHON_FILES
 运行代码在根目录的 HTML/JS/CSS、`tools/` 服务和构建脚本；测试在 `tests/` 与 `tools/test_*.js`；公开样例在 `public-data/`；`data/`、`release/`、`release-build-v*/` 和缓存目录是本机运行/构建产物，按 `.gitignore` 不属于公开代码交付面。当前本地还存在空的 `demos/` 目录，但它没有运行清单文件，也不是正式运行依赖。
 - 题库 Schema v4：`data/questions.json` 是完整教师题库的 canonical 文件，目录、题目、`bankId`、训练默认设置以及 `workflow.reviews`/`workflow.duplicateResolutions` 均在同一份 v4 文档中。旧版 `question-reviews.json` 仅用于 v3 首次升级迁移，不再作为运行时审查真相源。
 - 学生端读取 `/api/questions` 获得无教师工作流的投影；管理员读取 `/api/admin-question-bank` 获得完整题库和派生诊断。题目是否可答由服务端计算，定位异常、未通过审查和未处理重复候选均会阻止抽题。
-- 普通新增题支持 `/api/question-bank-import/preview` 与 `/api/question-bank-import/apply`；完整题库导入继续兼容原有入口，应用前会校验题库 ETag。
+- 普通新增题支持 `/api/question-bank-import/preview` 与 `/api/question-bank-import/apply`；旧的 `/api/question-bank-import` 直写入口返回 410，应用前会校验题库 ETag。

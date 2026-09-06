@@ -260,8 +260,6 @@
   ],
   "quizDefaults": {
     "durationSeconds": 120,
-    "correctScore": 1,
-    "wrongScore": -1,
     "scoring": {
       "mode": "streak",
       "baseCorrect": 1,

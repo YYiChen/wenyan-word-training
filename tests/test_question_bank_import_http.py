@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import sys
 import tempfile
@@ -84,6 +85,29 @@ class QuestionBankImportHttpTests(unittest.TestCase):
                 token = auth.create_admin_session()
                 original_question_text = question_path.read_text(encoding="utf-8")
                 try:
+                    status, legacy_payload, _headers = self.request_json(
+                        base_url,
+                        "POST",
+                        "/api/question-bank-import",
+                        {"mode": "merge", "package": package},
+                        token,
+                    )
+                    self.assertEqual(status, 410)
+                    self.assertIn("预览后应用", legacy_payload["error"])
+
+                    large_package = {
+                        **package,
+                        "description": "x" * 6_000_000,
+                    }
+                    status, _large_preview, _headers = self.request_json(
+                        base_url,
+                        "POST",
+                        "/api/question-bank-import/preview",
+                        {"mode": "merge", "sourceName": "大文件.json", "package": large_package},
+                        token,
+                    )
+                    self.assertEqual(status, 200)
+
                     status, preview_payload, _headers = self.request_json(
                         base_url,
                         "POST",
@@ -95,6 +119,28 @@ class QuestionBankImportHttpTests(unittest.TestCase):
                     preview = preview_payload["data"]
                     self.assertEqual(preview["summary"]["newQuestions"], 1)
                     self.assertEqual(question_path.read_text(encoding="utf-8"), original_question_text)
+                    self.assertEqual(json.loads(history_path.read_text(encoding="utf-8"))["events"], [])
+
+                    with patch.object(
+                        server,
+                        "append_question_bank_history_event",
+                        side_effect=OSError("injected history write failure"),
+                    ):
+                        status, _failed_payload, _headers = self.request_json(
+                            base_url,
+                            "POST",
+                            "/api/question-bank-import/apply",
+                            {
+                                "mode": "merge",
+                                "strategy": "preserve_local",
+                                "sourceName": "回滚测试.json",
+                                "package": package,
+                                "baseEtag": preview["baseEtag"],
+                            },
+                            token,
+                        )
+                    self.assertEqual(status, 500)
+                    self.assertEqual(json.loads(question_path.read_text(encoding="utf-8")), bank)
                     self.assertEqual(json.loads(history_path.read_text(encoding="utf-8"))["events"], [])
 
                     status, applied_payload, _headers = self.request_json(
@@ -113,8 +159,91 @@ class QuestionBankImportHttpTests(unittest.TestCase):
                     self.assertEqual(status, 200)
                     saved = applied_payload["data"]["bank"]
                     self.assertEqual(len(saved["questions"]), 1)
+                    self.assertIn("workflow", saved)
                     self.assertNotIn("workflow", server.student_question_bank_view(saved))
                     self.assertEqual(len(json.loads(history_path.read_text(encoding="utf-8")).get("events", [])), 1)
+
+                    import_event = next(
+                        event for event in applied_payload["data"]["history"]["events"]
+                        if event["kind"] == "import"
+                    )
+                    status, revoked_payload, _headers = self.request_json(
+                        base_url,
+                        "POST",
+                        "/api/question-bank-history/revoke",
+                        {"eventId": import_event["id"]},
+                        token,
+                    )
+                    self.assertEqual(status, 200)
+                    self.assertIn("workflow", revoked_payload["data"]["bank"])
+
+                    manual_bank = revoked_payload["data"]["bank"]
+                    manual_bank["questions"] = [{
+                        "id": "custom-browser-id",
+                        "number": 1,
+                        "type": "context_meaning",
+                        "articleId": "article-1",
+                        "word": "利",
+                        "sentence": "金就砺则利。",
+                        "targetOccurrence": 1,
+                        "options": [
+                            {"key": "A", "text": "锋利"}, {"key": "B", "text": "利益"},
+                            {"key": "C", "text": "有利"}, {"key": "D", "text": "顺利"},
+                        ],
+                        "answer": "A",
+                        "explanation": "利：锋利。",
+                    }]
+                    status, manual_payload, _headers = self.request_json(
+                        base_url,
+                        "PUT",
+                        "/api/admin-question-bank",
+                        manual_bank,
+                        token,
+                    )
+                    self.assertEqual(status, 200)
+                    manual_question = manual_payload["data"]["questions"][0]
+                    self.assertNotEqual(manual_question["id"], "custom-browser-id")
+                    self.assertTrue(manual_question["id"].startswith("q_"))
+                    self.assertEqual(manual_question["availability"]["reason"], "review_pending")
+                    stored_manual_question = json.loads(question_path.read_text(encoding="utf-8"))["questions"][0]
+                    self.assertNotIn("targetStart", stored_manual_question)
+                    self.assertNotIn("reviewStatus", stored_manual_question)
+                    stored_article = json.loads(question_path.read_text(encoding="utf-8"))["catalog"][0]
+                    self.assertEqual(stored_article["bookId"], "book-1")
+                    self.assertNotIn("volume", stored_article)
+
+                    article_bank = copy.deepcopy(manual_payload["data"])
+                    article_bank["catalog"].append({
+                        "id": "article-2",
+                        "bookId": "book-1",
+                        "unit": "二",
+                        "title": "师说",
+                        "author": "韩愈",
+                    })
+                    status, article_payload, _headers = self.request_json(
+                        base_url,
+                        "PUT",
+                        "/api/admin-question-bank",
+                        article_bank,
+                        token,
+                    )
+                    self.assertEqual(status, 200)
+                    saved_article = next(
+                        item for item in article_payload["data"]["catalog"] if item["id"] == "article-2"
+                    )
+                    self.assertEqual(saved_article["bookId"], "book-1")
+                    self.assertNotIn("volume", json.loads(question_path.read_text(encoding="utf-8"))["catalog"][1])
+
+                    invalid_article_bank = copy.deepcopy(article_payload["data"])
+                    invalid_article_bank["catalog"][-1]["bookId"] = "missing-book"
+                    status, _invalid_payload, _headers = self.request_json(
+                        base_url,
+                        "PUT",
+                        "/api/admin-question-bank",
+                        invalid_article_bank,
+                        token,
+                    )
+                    self.assertEqual(status, 400)
 
                     status, _stale_payload, _headers = self.request_json(
                         base_url,
@@ -130,6 +259,39 @@ class QuestionBankImportHttpTests(unittest.TestCase):
                         token,
                     )
                     self.assertEqual(status, 409)
+
+                    status, replace_preview_payload, _headers = self.request_json(
+                        base_url,
+                        "POST",
+                        "/api/question-bank-import/preview",
+                        {"mode": "replace", "sourceName": "替换题库.json", "package": package},
+                        token,
+                    )
+                    self.assertEqual(status, 200)
+                    replace_preview = replace_preview_payload["data"]
+                    self.assertEqual(replace_preview["summary"]["newQuestions"], 1)
+                    self.assertEqual(replace_preview["reviewSummary"]["afterPreserveLocal"]["pending"], 1)
+
+                    status, replace_payload, _headers = self.request_json(
+                        base_url,
+                        "POST",
+                        "/api/question-bank-import/apply",
+                        {
+                            "mode": "replace",
+                            "strategy": "preserve_local",
+                            "sourceName": "替换题库.json",
+                            "package": package,
+                            "baseEtag": replace_preview["baseEtag"],
+                        },
+                        token,
+                    )
+                    self.assertEqual(status, 200)
+                    replaced_bank = replace_payload["data"]["bank"]
+                    self.assertEqual(len(replaced_bank["questions"]), replace_preview["summary"]["newQuestions"])
+                    self.assertEqual(
+                        sum(review["status"] == "pending" for review in replaced_bank["workflow"]["reviews"].values()),
+                        replace_preview["reviewSummary"]["afterPreserveLocal"]["pending"],
+                    )
 
                     status, export_payload, _headers = self.request_json(
                         base_url,

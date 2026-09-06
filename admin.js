@@ -8,7 +8,6 @@ const API = {
   questionReviews: "./api/question-reviews",
   questionBankHistory: "./api/question-bank-history",
   questionBankExport: "./api/question-bank-export",
-  questionBankImport: "./api/question-bank-import",
   questionBankPreview: "./api/question-bank-import/preview",
   questionBankApply: "./api/question-bank-import/apply",
   questionBankRevoke: "./api/question-bank-history/revoke",
@@ -166,11 +165,10 @@ const wireEvents = () => {
 
 const load = async () => {
   try {
-    const [healthData, questionBank, leaderboardData, questionReviews, answerRecordData, questionBankHistoryData] = await Promise.all([
+    const [healthData, questionBank, leaderboardData, answerRecordData, questionBankHistoryData] = await Promise.all([
       fetchJson(API.health),
       fetchJson(API.questions),
       fetchJson(API.leaderboard),
-      fetchJson(API.questionReviews),
       fetchJson(API.answerRecords),
       fetchJson(API.questionBankHistory),
     ]);
@@ -180,7 +178,7 @@ const load = async () => {
     if (!Array.isArray(questionBank.questions)) throw new Error("题库格式无效：缺少 questions 数组。");
     bank = questionBank;
     leaderboard = normalizeLeaderboard(leaderboardData);
-    reviews = normalizeReviews(questionReviews);
+    syncReviewsFromBank();
     answerRecords = normalizeAnswerRecords(answerRecordData);
     questionBankHistory = normalizeQuestionBankHistory(questionBankHistoryData);
     selectedQuestionId = bank.questions[0]?.id || null;

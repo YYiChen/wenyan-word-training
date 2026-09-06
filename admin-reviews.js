@@ -293,14 +293,14 @@ const persistReview = async (questionId, review, message, expand = false) => {
   card?.querySelectorAll("button").forEach((button) => { button.disabled = true; });
   savingReviewIds.add(questionId);
   try {
-    const payload = await patchJson(API.questionReviews, { questionId, review });
-    reviews = normalizeReviews(payload);
+    await patchJson(API.questionReviews, { questionId, review });
     const previousQuestion = getQuestion(questionId);
     bank = await fetchJson(API.questions);
+    syncReviewsFromBank();
     const savedQuestion = getQuestion(questionId);
     const wasPendingPublication = review.status === "passed"
-      && ["candidate", "admin_created", "admin_edited"].includes(previousQuestion?.reviewStatus)
-      && savedQuestion?.reviewStatus === "verified";
+      && previousQuestion?.availability?.playable !== true
+      && savedQuestion?.availability?.playable === true;
     if (wasPendingPublication) {
       message = `${message} 已发布到学生端。`;
     }
@@ -331,10 +331,17 @@ const saveDuplicateReviewStatus = async (questionId, status) => {
   };
   bank = await putJson(API.questions, { ...bank, workflow: nextWorkflow });
   const savedQuestion = bank.questions.find((question) => question.id === questionId) || current;
+  const savedAvailability = savedQuestion?.availability;
   statusMessage = status === "kept"
-    ? isQuestionAbnormal(savedQuestion)
-      ? `已确认保留第 ${current.number} 题，但它仍有划线异常，修复前学生端不会抽到。`
-      : `已确认保留第 ${current.number} 题，学生端可以抽到（前提是训练范围包含它）。`
+    ? savedAvailability?.playable === true
+      ? `已确认保留第 ${current.number} 题，学生端可以抽到（前提是训练范围包含它）。`
+      : savedAvailability?.reason === "invalid"
+        ? `已确认保留第 ${current.number} 题，但它仍有划线异常，修复前学生端不会抽到。`
+        : savedAvailability?.reason === "review_pending"
+          ? `已确认保留第 ${current.number} 题，但普通审查仍待处理，学生端暂不会抽到。`
+          : savedAvailability?.reason === "review_needs_revision"
+            ? `已确认保留第 ${current.number} 题，但普通审查仍需修改，学生端暂不会抽到。`
+            : `已确认保留第 ${current.number} 题，但它当前仍被学生端跳过。`
     : status === "skipped"
       ? `已标记跳过第 ${current.number} 题；题目仍保留在题库中。`
       : `第 ${current.number} 题已恢复为重复候选。`;

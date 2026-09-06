@@ -124,7 +124,7 @@ ${JSON.stringify(createQuestionBankTemplate(), null, 2)}
 
 const saveBank = async (nextBank, message) => {
   bank = await putJson(API.questions, nextBank);
-  reviews = normalizeReviews(await fetchJson(API.questionReviews));
+  syncReviewsFromBank();
   statusMessage = message;
   render();
 };
@@ -476,12 +476,14 @@ const renderQuestionImportDialog = () => {
         </div>
         ${mode === "replace"
           ? `<p class="question-import-warning">替换会用导入文件建立新的题库版本；当前题库会先自动备份，历史记录保留。此操作只建议用于完整题库恢复。</p>`
-          : `<p class="question-import-note">默认保留本机已有题目和审查结论，只新增未重复题目；新题导入后会进入待审，确认通过后才会给学生抽取。</p>`}
+          : preview.sameBank
+            ? `<p class="question-import-note">同一题库导入：默认保留本机的修改题目；未变化题目的已审结论优先于待审，双方均已审结且不一致时按下方策略处理；新题按导入文件的审查状态进入流程。</p>`
+            : `<p class="question-import-note">外部题库只会新增未重复题目；外部文件中的审查结论不会直接继承，新题导入后进入待审，确认通过后才会给学生抽取。</p>`}
         ${needsStrategy ? `
           <fieldset class="question-import-strategy">
             <legend>遇到已有内容变化时</legend>
             <label><input type="radio" name="question-import-strategy" value="preserve_local" ${strategy === "preserve_local" ? "checked" : ""}> 保留本机版本（推荐）</label>
-            <label><input type="radio" name="question-import-strategy" value="use_imported" ${strategy === "use_imported" ? "checked" : ""}> 使用导入版本（会重置相关题目的审查）</label>
+            <label><input type="radio" name="question-import-strategy" value="use_imported" ${strategy === "use_imported" ? "checked" : ""}> 使用导入版本（题目内容及审查状态以导入文件为准；导入端待审时会恢复待审）</label>
           </fieldset>
         ` : ""}
         <div class="question-import-review-summary">
@@ -722,6 +724,7 @@ const applyQuestionImportPreview = async () => {
       questionBankHistory = normalizeQuestionBankHistory(result.history || questionBankHistory);
       statusMessage = `合并完成：当前题库共 ${bank.questions.length} 道题，新导入题请在快速审查中确认。`;
     }
+    syncReviewsFromBank();
     selectedQuestionId = bank.questions[0]?.id || null;
     creatingQuestion = false;
     pendingQuestionImport = null;
@@ -766,6 +769,7 @@ const revokeQuestionBankImport = async (eventId) => {
   try {
     const result = await postJson(API.questionBankRevoke, { eventId });
     bank = result.bank;
+    syncReviewsFromBank();
     questionBankHistory = normalizeQuestionBankHistory(result.history);
     selectedQuestionId = bank.questions[0]?.id || null;
     creatingQuestion = false;
@@ -812,7 +816,7 @@ const saveBook = async (form) => {
 const deleteBook = async (id) => {
   const book = getBooks().find((item) => item.id === id);
   if (!book) return;
-  if (getCatalog().some((article) => article.volume === book.label)) throw new Error("这个教材册还有所属文章，不能删除；请先处理这些文章。");
+  if (getCatalog().some((article) => article.bookId === book.id)) throw new Error("这个教材册还有所属文章，不能删除；请先处理这些文章。");
   if (!window.confirm(`确定删除教材册“${book.label}”吗？`)) return;
   await saveBank({ ...bank, books: getBooks().filter((item) => item.id !== id) }, "教材册已删除。");
 };
@@ -821,13 +825,14 @@ const saveArticle = async (form) => {
   const formData = new FormData(form);
   const id = formData.get("id").toString().trim();
   const title = formData.get("title").toString().trim();
-  const volume = formData.get("volume").toString().trim();
+  const bookId = formData.get("bookId").toString().trim();
   const unit = formData.get("unit").toString().trim();
   const author = formData.get("author").toString().trim();
+  const book = getBooks().find((item) => item.id === bookId);
   if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(id)) throw new Error("文章 ID 必须以英文字母开头，只能包含字母、数字、下划线或短横线。");
-  if (!getBooks().some((book) => book.label === volume)) throw new Error("请选择有效的所属教材册。");
+  if (!book) throw new Error("请选择有效的所属教材册。");
   if (getCatalog().some((article) => article.id === id)) throw new Error("这个文章 ID 已经存在。");
-  const article = { id, title, volume, unit, author };
+  const article = { id, bookId: book.id, title, unit, author };
   await saveBank({ ...bank, catalog: [...getCatalog(), article] }, "新文章已保存。");
 };
 
@@ -863,27 +868,26 @@ const saveQuestion = async (form) => {
   targetOccurrence = selectedIndex + 1;
 
   const updated = {
-    ...(current || {}),
-    id: current?.id || createQuestionId(),
+    // Empty IDs are intentional for new manual rows. The server assigns the
+    // canonical q_* ID so the browser cannot become the identity authority.
+    id: current?.id || "",
     number: current?.number || getNextQuestionNumber(),
     type: formData.get("type").toString(),
     word,
     articleId: article.id,
-    article: article.title,
-    volume: article.volume,
-    unit: article.unit,
     sentence,
-    targetStart,
     targetOccurrence,
     explanation: formData.get("explanation").toString().trim(),
     answer: formData.get("answer").toString(),
     options,
-    reviewStatus: current?.reviewStatus === "candidate" ? "candidate" : current ? "admin_edited" : "admin_created",
     source: current?.source || {
       kind: "admin_created",
       title: "管理后台新增题目",
     },
   };
+  for (const key of ["rule", "context", "supportingItems", "rawText"]) {
+    if (current?.[key] !== undefined) updated[key] = current[key];
+  }
   const stem = formData.get("stem").toString().trim();
   if (stem) updated.stem = stem;
   else delete updated.stem;
@@ -892,15 +896,13 @@ const saveQuestion = async (form) => {
   const nextQuestions = current
     ? bank.questions.map((question) => question.id === updated.id ? updated : question)
     : [...bank.questions, updated];
-  const duplicateMerge = rebuildDuplicateReviews(nextQuestions, {
-    resetQuestionIds: [updated.id],
-  });
   const nextBank = {
     ...bank,
-    questions: duplicateMerge.questions,
+    // The v4 server rebuilds duplicate resolutions from canonical questions.
+    questions: nextQuestions,
   };
   bank = await putJson(API.questions, nextBank);
-  reviews = normalizeReviews(await fetchJson(API.questionReviews));
+  syncReviewsFromBank();
   selectedQuestionId = bank.questions.find((question) => question.id === updated.id)
     ?.id || bank.questions.find((question) => question.number === updated.number && question.word === updated.word)?.id || null;
   creatingQuestion = false;
@@ -915,13 +917,11 @@ const deleteSelectedQuestion = async () => {
   if (!window.confirm(`确定删除第 ${current.number} 题“${current.word}”吗？删除前会自动备份题库。`)) return;
 
   const currentIndex = bank.questions.findIndex((question) => question.id === current.id);
-  const remainingQuestions = bank.questions.filter((question) => question.id !== current.id);
-  const duplicateMerge = rebuildDuplicateReviews(remainingQuestions, {
-    resetQuestionIds: [current.id],
-  });
-  const nextQuestions = duplicateMerge.questions;
+  // The v4 server removes stale duplicate resolutions and rebuilds remaining
+  // groups during canonical validation.
+  const nextQuestions = bank.questions.filter((question) => question.id !== current.id);
   bank = await putJson(API.questions, { ...bank, questions: nextQuestions });
-  reviews = normalizeReviews(await fetchJson(API.questionReviews));
+  syncReviewsFromBank();
   creatingQuestion = false;
   selectedQuestionId = nextQuestions[Math.min(currentIndex, nextQuestions.length - 1)]?.id || null;
   statusMessage = "题目已删除，原有题号保持不变";

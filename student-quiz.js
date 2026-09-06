@@ -240,8 +240,8 @@ const renderStart = () => {
   setPkShellClass(false);
   const config = getQuizConfig();
   const hasQuestions = bank.questions.length > 0;
-  const abnormalCount = bank.questions.filter((question) => question.availability?.reason === "invalid_or_duplicate").length;
-  const candidateCount = bank.questions.filter((question) => question.availability?.reason === "review_pending").length;
+  const abnormalCount = bank.questions.filter((question) => question.availability?.reason === "invalid").length;
+  const candidateCount = bank.questions.filter((question) => ["review_pending", "review_needs_revision"].includes(question.availability?.reason)).length;
   const volumes = getBooks().map((book) => book.label);
   const selectedVolumes = normalizeSelection(startSelection.volumes, volumes);
   const availableArticles = getAvailableArticles(selectedVolumes);

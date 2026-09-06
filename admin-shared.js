@@ -127,7 +127,15 @@ const normalizeReviews = (payload) => {
   ]));
 };
 
-const getQuestionReview = (questionId) => reviews[questionId] || normalizeReview(null);
+// The v4 bank is the only persisted review source. Keep the legacy `reviews`
+// variable as a derived compatibility cache for older helpers, but never use
+// it as the authority for a rendered question.
+const syncReviewsFromBank = () => {
+  reviews = normalizeReviews({ reviews: bank?.workflow?.reviews || {} });
+  return reviews;
+};
+
+const getQuestionReview = (questionId) => normalizeReview(bank?.workflow?.reviews?.[questionId]);
 
 const isQuestionAbnormal = (question) => question?.reviewStatus === "abnormal";
 const getDuplicateReview = (question) => {
@@ -149,15 +157,21 @@ const getDuplicateReviewCount = (questions = bank?.questions) => (Array.isArray(
   .filter(isDuplicateReviewPending).length;
 
 const getQuestionAvailability = (question) => {
-  if (isQuestionAbnormal(question)) return { label: "学生端跳过：划线异常", className: "blocked" };
-  if (getQuestionReview(question?.id).status === "needs_revision") {
-    return { label: "学生端跳过：待修改", className: "blocked" };
-  }
-  if (question?.reviewStatus === "candidate") return { label: "学生端跳过：候选题待复核", className: "blocked" };
-  const duplicateReview = getDuplicateReview(question);
-  if (duplicateReview?.status === "pending") return { label: "学生端跳过：重复候选待审", className: "blocked" };
-  if (duplicateReview?.status === "skipped") return { label: "学生端跳过：重复题已标记跳过", className: "blocked" };
-  return { label: "学生端可抽取（需在所选范围内）", className: "available" };
+  const reason = question?.availability?.reason;
+  const labels = {
+    invalid: "学生端跳过：题目数据异常",
+    review_pending: "学生端跳过：候选题待复核",
+    review_needs_revision: "学生端跳过：待修改",
+    review_skipped: "学生端跳过：已跳过审查",
+    duplicate_pending: "学生端跳过：重复候选待审",
+    duplicate_skipped: "学生端跳过：重复题已标记跳过",
+  };
+  if (reason === "playable") return { label: "学生端可抽取（需在所选范围内）", className: "available" };
+  if (labels[reason]) return { label: labels[reason], className: "blocked" };
+  // Compatibility fallback for an older cached admin projection. New server
+  // responses always include the stable availability.reason above.
+  if (isQuestionAbnormal(question)) return { label: "学生端跳过：题目数据异常", className: "blocked" };
+  return { label: "学生端暂不可抽取", className: "blocked" };
 };
 
 const getAbnormalQuestionCount = (questions = bank?.questions) => (Array.isArray(questions) ? questions : [])
@@ -198,7 +212,7 @@ const postJson = async (url, value) => {
     renderLogin();
   }
   if (!response.ok || !payload?.ok) throw new Error(payload?.error || "请求失败。");
-  if ([API.questionBankImport, API.questionBankApply, API.questionBankRevoke].includes(url)) {
+  if ([API.questionBankApply, API.questionBankRevoke].includes(url)) {
     questionBankEtag = response.headers.get("ETag") || questionBankEtag;
   }
   return payload.data;

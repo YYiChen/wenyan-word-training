@@ -86,6 +86,7 @@ from server_validators import (
     make_json_etag,
     normalize_duplicate_reviews,
     normalize_identity_text,
+    _new_question_id,
     prune_answer_records,
     question_bank_history_view,
     question_core_signature,
@@ -217,6 +218,62 @@ def ensure_question_bank_history() -> None:
 def append_question_bank_history_event(event: dict[str, Any]) -> dict[str, Any]:
     _prepare_question_services()
     return _append_question_bank_history_event(event)
+
+
+def persist_question_bank_import(
+    previous_bank: dict[str, Any],
+    next_bank: dict[str, Any],
+    event: dict[str, Any],
+) -> dict[str, Any]:
+    """Persist an import as one best-effort bank/history transaction.
+
+    The two JSON files cannot be committed atomically as a single filesystem
+    object. If history append fails after the bank write, restore both prior
+    snapshots before surfacing the error; never report a successful import for
+    a partially completed pair.
+    """
+    previous_history = validate_question_bank_history(
+        read_json(QUESTION_BANK_HISTORY_PATH, empty_question_bank_history())
+    )
+    backup_and_write(QUESTIONS_PATH, next_bank)
+    try:
+        return append_question_bank_history_event(event)
+    except Exception as history_error:
+        restore_errors: list[Exception] = []
+        for path, snapshot in (
+            (QUESTIONS_PATH, previous_bank),
+            (QUESTION_BANK_HISTORY_PATH, previous_history),
+        ):
+            try:
+                backup_and_write(path, snapshot)
+            except Exception as restore_error:  # pragma: no cover - disk failure path
+                restore_errors.append(restore_error)
+        if restore_errors:
+            raise OSError(
+                "题库导入历史记录写入失败，且自动回滚未完成；请立即从 data/backups 恢复。"
+            ) from history_error
+        raise
+
+
+def prepare_manual_question_bank_payload(
+    payload: Any,
+    previous_bank: dict[str, Any],
+) -> tuple[dict[str, Any], set[str]]:
+    """Assign server IDs to every new question in a manual admin save."""
+    if not isinstance(payload, dict):
+        raise ValueError("题库必须是 JSON 对象。")
+    prepared = copy.deepcopy(payload)
+    previous_ids = {question["id"] for question in previous_bank["questions"]}
+    used_ids = set(previous_ids)
+    drafts = prepared.get("questions")
+    if isinstance(drafts, list):
+        for draft in drafts:
+            if not isinstance(draft, dict):
+                continue
+            draft_id = draft.get("id")
+            if not isinstance(draft_id, str) or not draft_id.strip() or draft_id not in previous_ids:
+                draft["id"] = _new_question_id(used_ids)
+    return prepared, previous_ids
 
 
 def revoke_question_bank_import(event_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -659,9 +716,20 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
                 "/api/question-bank-history/revoke",
             } and not self.require_admin():
                 return
+            if route == "/api/question-bank-import":
+                self.send_api_error(
+                    "旧题库导入接口已停用，请使用预览后应用的导入流程。",
+                    HTTPStatus.GONE,
+                )
+                return
+            large_request_routes = {
+                "/api/answer-records/import",
+                "/api/question-bank-import/preview",
+                "/api/question-bank-import/apply",
+            }
             payload = self.read_request_json(
                 50_000_000
-                if route in {"/api/answer-records/import", "/api/question-bank-import"}
+                if route in large_request_routes
                 else 5_000_000
             )
             if route in {"/api/question-bank-import/preview", "/api/question-bank-import/apply"}:
@@ -703,8 +771,7 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
                         mode=mode,
                         source_name=source_name or "题库导入",
                     )
-                    backup_and_write(QUESTIONS_PATH, result)
-                    history = append_question_bank_history_event(event)
+                    history = persist_question_bank_import(current, result, event)
                 self.send_json(
                     {
                         "ok": True,
@@ -779,46 +846,6 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
                     history = append_question_bank_history_event(event)
                 self.send_json({"ok": True, "data": question_bank_history_view(history, question_bank)})
                 return
-            if route == "/api/question-bank-import":
-                if not isinstance(payload, dict):
-                    raise ValueError("题库导入请求必须是对象。")
-                mode = payload.get("mode")
-                if mode not in {"merge", "replace"}:
-                    raise ValueError("题库导入模式只能是 merge 或 replace。")
-                source_name = str(payload.get("sourceName", "题库导入")).replace("\\", "/").split("/")[-1].strip()[:200]
-                imported_bank = payload.get("bank") or payload.get("package")
-                if not isinstance(imported_bank, dict):
-                    raise ValueError("题库导入请求缺少 bank 对象。")
-                with WRITE_LOCK:
-                    current_bank = validate_question_bank_v4(read_json(QUESTIONS_PATH))
-                    imported_bank = prepare_question_import_package(imported_bank, current_bank, mode=mode)
-                    merged = merge_question_bank_v4(
-                        current_bank,
-                        imported_bank,
-                        mode=mode,
-                        strategy=payload.get("strategy", "preserve_local"),
-                    )
-                    result = merged["bank"]
-                    event = make_question_import_event(
-                        current_bank,
-                        result,
-                        mode=mode,
-                        source_name=source_name or "题库导入",
-                    )
-                    backup_and_write(QUESTIONS_PATH, result)
-                    history = append_question_bank_history_event(event)
-                self.send_json(
-                    {
-                        "ok": True,
-                        "data": {
-                            "bank": admin_question_bank_view(result),
-                            "history": question_bank_history_view(history, result),
-                            "report": merged["report"],
-                        },
-                    },
-                    extra_headers={"ETag": make_json_etag(result)},
-                )
-                return
             if route == "/api/question-bank-history/revoke":
                 if not isinstance(payload, dict):
                     raise ValueError("撤销题库导入请求必须是对象。")
@@ -831,7 +858,7 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
                     {
                         "ok": True,
                         "data": {
-                            "bank": result_bank,
+                            "bank": admin_question_bank_view(result_bank),
                             "history": question_bank_history_view(history, result_bank),
                         },
                     },
@@ -891,7 +918,7 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
         except (ValueError, TypeError, AttributeError) as error:
             self.send_api_error(str(error), HTTPStatus.BAD_REQUEST)
         except (OSError, json.JSONDecodeError) as error:
-            self.send_api_error(f"管理员认证失败：{error}", HTTPStatus.INTERNAL_SERVER_ERROR)
+            self.send_api_error(f"文件操作失败：{error}", HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def do_PUT(self) -> None:
         route = urlparse(self.path).path
@@ -911,21 +938,17 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
                         self.send_api_error("题库已被另一个管理页面修改，请先刷新后再保存。", HTTPStatus.CONFLICT)
                         return
                     previous_bank = validate_questions(current_raw)
-                    previous_ids = {q["id"] for q in previous_bank["questions"]}
-                    payload = copy.deepcopy(payload)
-                    # Manual admin drafts historically used custom-* IDs. Let
-                    # the server assign canonical IDs for newly created rows.
-                    for draft in payload.get("questions", []):
-                        if isinstance(draft, dict) and draft.get("id") not in previous_ids and str(draft.get("id", "")).startswith("custom-"):
-                            draft["id"] = ""
+                    payload, previous_ids = prepare_manual_question_bank_payload(payload, previous_bank)
                     result = validate_question_bank_v4(payload)
                     previous_by_id = {q["id"]: q for q in previous_bank["questions"]}
                     for question in result["questions"]:
                         old = previous_by_id.get(question["id"])
-                        if old and (
+                        if not old:
+                            result["workflow"]["reviews"][question["id"]] = empty_question_review()
+                        elif (
                             make_question_semantic_fingerprint(old) != make_question_semantic_fingerprint(question)
                         ):
-                            result["workflow"]["reviews"][question["id"]] = {"status": "pending", "suggestedAnswer": None, "optionIssues": [], "note": "", "reviewedAt": ""}
+                            result["workflow"]["reviews"][question["id"]] = empty_question_review()
                     result = validate_question_bank_v4(result)
                     backup_and_write(QUESTIONS_PATH, result)
                     self.send_json({"ok": True, "data": admin_question_bank_view(result)}, extra_headers={"ETag": make_json_etag(result)})

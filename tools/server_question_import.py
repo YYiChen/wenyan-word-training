@@ -265,8 +265,49 @@ def _review_conflict(left: dict[str, Any], right: dict[str, Any]) -> bool:
     return (
         left.get("status") not in {"pending", None}
         and right.get("status") not in {"pending", None}
-        and left.get("status") != right.get("status")
+        and left != right
     )
+
+
+def merge_question_review(
+    local_review: Any,
+    incoming_review: Any,
+    *,
+    trusted_same_bank: bool,
+    content_state: str,
+    strategy: str,
+) -> tuple[dict[str, Any], bool]:
+    """Merge one review decision and report a real non-pending conflict.
+
+    ``content_state`` is one of ``untouched``, ``new``, ``unchanged`` or
+    ``changed``.  Only an unchanged question from the same bank may merge the
+    two review states.  External packages never import a teacher decision.
+    """
+    if content_state not in {"untouched", "new", "unchanged", "changed"}:
+        raise ValueError("题目内容状态无效。")
+    if strategy not in {"preserve_local", "use_imported"}:
+        raise ValueError("题库导入策略无效。")
+
+    local = _v4_review(local_review)
+    incoming = _v4_review(incoming_review)
+    if content_state == "untouched":
+        return copy.deepcopy(local), False
+    if not trusted_same_bank:
+        return copy.deepcopy(EMPTY_REVIEW), False
+    if content_state == "new":
+        return copy.deepcopy(incoming), False
+    if content_state == "changed":
+        return copy.deepcopy(incoming if strategy == "use_imported" else local), False
+
+    # Same-bank, unchanged content: a non-pending decision wins over pending;
+    # if both are reviewed and disagree, the selected strategy decides.
+    if local["status"] == "pending" and incoming["status"] != "pending":
+        return copy.deepcopy(incoming), False
+    if incoming["status"] == "pending" and local["status"] != "pending":
+        return copy.deepcopy(local), False
+    if _review_conflict(local, incoming):
+        return copy.deepcopy(incoming if strategy == "use_imported" else local), True
+    return copy.deepcopy(local), False
 
 
 def _duplicate_candidate_groups(questions: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
@@ -313,6 +354,7 @@ def _prepare_incoming_questions(
     accepted_fingerprints = set(current_fingerprints)
     imported_ids: set[str] = set()
     id_map: dict[str, str] = {}
+    content_status: dict[str, str] = {}
     foreign = not same_bank
 
     for raw in incoming["questions"]:
@@ -341,6 +383,7 @@ def _prepare_incoming_questions(
             accepted.append(question)
             accepted_fingerprints.add(make_question_semantic_fingerprint(question))
             imported_ids.add(question["id"])
+            content_status[question["id"]] = "new"
             continue
 
         if local is None:
@@ -357,11 +400,13 @@ def _prepare_incoming_questions(
             accepted.append(question)
             accepted_fingerprints.add(fingerprint)
             imported_ids.add(question["id"])
+            content_status[question["id"]] = "new"
             continue
 
         local_fingerprint = make_question_semantic_fingerprint(local)
         if local_fingerprint == fingerprint:
             skipped.append({"id": old_id, "reason": "unchanged"})
+            content_status[old_id] = "unchanged"
             continue
         if make_question_core_signature(local) == make_question_core_signature(question):
             conflicts.append({
@@ -381,6 +426,7 @@ def _prepare_incoming_questions(
             accepted.append(question)
             imported_ids.add(old_id)
             accepted_fingerprints.add(fingerprint)
+            content_status[old_id] = "changed"
         else:
             skipped.append({"id": old_id, "reason": "preserve_local"})
 
@@ -388,6 +434,7 @@ def _prepare_incoming_questions(
         "conflicts": conflicts,
         "importedIds": imported_ids,
         "idMap": id_map,
+        "contentStatus": content_status,
     }
 
 
@@ -411,6 +458,14 @@ def merge_question_bank_v4(
     if mode == "replace":
         replacement = copy.deepcopy(incoming)
         replacement.pop("importKind", None)
+        if not same_bank:
+            replacement["workflow"] = {
+                "reviews": {
+                    item["id"]: copy.deepcopy(EMPTY_REVIEW)
+                    for item in replacement["questions"]
+                },
+                "duplicateResolutions": {},
+            }
         return {
             "bank": validate_question_bank_v4(replacement),
             "report": {
@@ -419,6 +474,10 @@ def merge_question_bank_v4(
                 "skipped": [],
                 "directoryConflicts": [],
                 "questionConflicts": [],
+                "reviewConflicts": [],
+                "foreignIdCollisions": [],
+                "candidateGroupCount": 0,
+                "candidateQuestionCount": 0,
             },
         }
 
@@ -457,43 +516,25 @@ def merge_question_bank_v4(
     current_reviews = current["workflow"]["reviews"]
     incoming_reviews = incoming["workflow"]["reviews"]
     merged_reviews: dict[str, Any] = {}
-    accepted_ids = {item["id"] for item in result["questions"]}
+    content_status = question_report.get("contentStatus", {})
+    review_conflicts: list[dict[str, Any]] = []
     for question in result["questions"]:
         qid = question["id"]
-        old = current_reviews.get(qid, EMPTY_REVIEW)
-        imported = incoming_reviews.get(qid, EMPTY_REVIEW)
-        if not same_bank:
-            merged_reviews[qid] = copy.deepcopy(old if qid in current_reviews else EMPTY_REVIEW)
-        elif qid in accepted_by_id or qid in question_report["importedIds"]:
-            # A same-bank question selected from the import can carry the
-            # trusted review result from the source export. A pending source
-            # review never upgrades a local review.
-            merged_reviews[qid] = copy.deepcopy(imported if imported.get("status") != "pending" else EMPTY_REVIEW)
-        elif qid in current_reviews:
-            merged_reviews[qid] = copy.deepcopy(old)
-        else:
-            merged_reviews[qid] = copy.deepcopy(imported if imported.get("status") != "pending" else EMPTY_REVIEW)
-
-    # A foreign package never inherits teacher review decisions. For a same
-    # lineage full export, preserve or replace decisions according to the
-    # selected global strategy while retaining current data by default.
-    if same_bank:
-        for qid in list(merged_reviews):
-            local_review = _v4_review(current_reviews.get(qid, EMPTY_REVIEW))
-            imported_review = _v4_review(incoming_reviews.get(qid, EMPTY_REVIEW))
-            if qid in current_reviews and qid in incoming_reviews:
-                if _review_conflict(local_review, imported_review) and strategy != "use_imported":
-                    merged_reviews[qid] = local_review
-                elif strategy == "use_imported" and imported_review["status"] != "pending":
-                    merged_reviews[qid] = imported_review
-                elif local_review["status"] != "pending":
-                    merged_reviews[qid] = local_review
-            merged_reviews[qid] = _v4_review(merged_reviews[qid])
-    else:
-        merged_reviews = {
-            qid: _v4_review(review if qid in current_reviews else EMPTY_REVIEW)
-            for qid, review in merged_reviews.items()
-        }
+        state = content_status.get(qid, "untouched")
+        merged_review, conflict = merge_question_review(
+            current_reviews.get(qid, EMPTY_REVIEW),
+            incoming_reviews.get(qid, EMPTY_REVIEW),
+            trusted_same_bank=same_bank,
+            content_state=state,
+            strategy=strategy,
+        )
+        merged_reviews[qid] = merged_review
+        if conflict:
+            review_conflicts.append({
+                "kind": "review",
+                "questionId": qid,
+                "message": "同一道题的审查结论不同，已按所选导入策略处理。",
+            })
 
     result["workflow"] = {
         "reviews": merged_reviews,
@@ -515,6 +556,7 @@ def merge_question_bank_v4(
         "acceptedIds": [item["id"] for item in accepted],
         "skipped": skipped,
         "questionConflicts": question_report["conflicts"],
+        "reviewConflicts": review_conflicts,
         "directoryConflicts": book_conflicts + catalog_conflicts + type_conflicts,
         "directoryUpdates": {
             "books": book_updates,
@@ -566,74 +608,54 @@ def build_import_preview(
     current = validate_question_bank_v4(current)
     incoming_is_external = incoming.get("importKind") == "external"
     incoming = validate_question_bank_v4(incoming)
+    if incoming_is_external:
+        incoming["importKind"] = "external"
     same_bank = not incoming_is_external and incoming["bankId"] == current["bankId"]
-    current_by_id = {item["id"]: item for item in current["questions"]}
-    imported_total = len(incoming["questions"])
-    unchanged = 0
-    new_questions = 0
-    modified = 0
-    major_modified = 0
-    exact_duplicates = 0
-    foreign_collisions: list[str] = []
-    conflicts: list[dict[str, Any]] = []
-    current_fingerprints = {
-        make_question_semantic_fingerprint(item) for item in current["questions"]
-    }
-
-    for question in incoming["questions"]:
-        local = current_by_id.get(question["id"]) if same_bank else None
-        if local is None:
-            if not same_bank and question["id"] in current_by_id:
-                foreign_collisions.append(question["id"])
-            if make_question_semantic_fingerprint(question) in current_fingerprints:
-                exact_duplicates += 1
-            else:
-                new_questions += 1
-            continue
-        incoming_fp = make_question_semantic_fingerprint(question)
-        local_fp = make_question_semantic_fingerprint(local)
-        if incoming_fp == local_fp:
-            unchanged += 1
-            local_review = _v4_review(current["workflow"]["reviews"].get(question["id"]))
-            imported_review = _v4_review(incoming["workflow"]["reviews"].get(question["id"]))
-            if _review_conflict(local_review, imported_review):
-                conflicts.append({
-                    "kind": "review",
-                    "questionId": question["id"],
-                    "message": "同一道题的审查结论不同，默认保留本机结论。",
-                })
-            continue
-        if make_question_core_signature(local) == make_question_core_signature(question):
-            modified += 1
-            classification = "modified"
-            message = "已有题目细节发生修改，默认保留本机版本。"
-        else:
-            major_modified += 1
-            classification = "majorModified"
-            message = "已有题目发生重大修改，必须明确选择是否采用导入版本。"
-        conflicts.append({
-            "kind": "question",
-            "questionId": question["id"],
-            "classification": classification,
-            "message": message,
-        })
-
-    # Use the authoritative merger in a no-write dry run to classify the
-    # resulting duplicate groups and directory collisions.
-    dry_run = merge_question_bank_v4(current, incoming, mode="merge", strategy="preserve_local")
+    # Preview and apply deliberately call the same merger.  The browser must
+    # not maintain a second approximation of directory remapping, duplicate
+    # detection or review inheritance.
+    dry_run = merge_question_bank_v4(current, incoming, mode=mode, strategy="preserve_local")
     report = dry_run["report"]
-    conflicts.extend(report["directoryConflicts"])
+    current_ids = {item["id"] for item in current["questions"]}
+    if mode == "replace":
+        unchanged = 0
+        exact_duplicates = 0
+        new_questions = len(incoming["questions"])
+    else:
+        unchanged = sum(item.get("reason") == "unchanged" for item in report["skipped"])
+        exact_duplicates = sum(item.get("reason") == "exact_duplicate" for item in report["skipped"])
+        new_questions = sum(item_id not in current_ids for item_id in report["acceptedIds"])
+    modified = sum(
+        item.get("classification") == "modified"
+        for item in report["questionConflicts"]
+    )
+    major_modified = sum(
+        item.get("classification") == "majorModified"
+        for item in report["questionConflicts"]
+    )
+    if mode == "replace":
+        replacement_groups = _duplicate_candidate_groups(dry_run["bank"]["questions"])
+        duplicate_group_count = len(replacement_groups)
+        duplicate_question_count = sum(len(group) for group in replacement_groups)
+    else:
+        duplicate_group_count = report["candidateGroupCount"]
+        duplicate_question_count = report["candidateQuestionCount"]
+    conflicts = [
+        *report["questionConflicts"],
+        *report["reviewConflicts"],
+        *report["directoryConflicts"],
+    ]
     summary = {
-        "importedTotal": imported_total,
+        "importedTotal": len(incoming["questions"]),
         "unchanged": unchanged,
         "newQuestions": new_questions,
         "modified": modified,
         "majorModified": major_modified,
         "exactDuplicates": exact_duplicates,
-        "duplicateCandidates": report["candidateGroupCount"],
-        "duplicateCandidateQuestions": report["candidateQuestionCount"],
-        "foreignIdCollisions": len(foreign_collisions),
-        "reviewConflicts": sum(item.get("kind") == "review" for item in conflicts),
+        "duplicateCandidates": duplicate_group_count,
+        "duplicateCandidateQuestions": duplicate_question_count,
+        "foreignIdCollisions": len(report["foreignIdCollisions"]),
+        "reviewConflicts": len(report["reviewConflicts"]),
         "directoryConflicts": len(report["directoryConflicts"]),
     }
     return {
