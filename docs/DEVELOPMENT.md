@@ -191,3 +191,9 @@ Windows 构建要求构建机能找到外部 `pyinstaller`；运行生成的 EXE
 建议以后增加一个仅供开发/构建使用的 `requirements-dev.txt`，至少记录 `python-docx`、`Pillow` 和经验证的 `PyInstaller` 版本；本次不创建，避免在没有确定兼容版本时凭印象锁版本。运行产品本身不需要这些包，Windows release 用户也不需要 Python。
 
 当前不存在 `.github/workflows/`。建议以后增加最小 CI，但本次不创建：在 Windows runner 上安装 Python 和 Node，运行上述 Python/Node 测试、JS/Python 语法检查、runtime asset 检查和 `git diff --check`；PyInstaller 全量构建可作为手动 release 或单独 workflow，避免每次普通提交引入构建平台复杂度。
+## 题库 Schema v4 开发约束
+
+- `data/questions.json` 是唯一完整题库；审查写入 `workflow.reviews`，重复处理写入 `workflow.duplicateResolutions`。
+- 学生使用 `/api/questions` 投影，管理员使用 `/api/admin-question-bank` 完整视图；不要把管理员视图直接返回学生端。
+- 普通 JSON 必须使用 `wenyan-question-import` 1.0；导入应先调用 preview，再带 `baseEtag` 调 apply。服务端负责生成新题 ID、分类重复和校验，浏览器不得自行决定合并结果。
+- 编辑语义字段后必须让审查回到待审；`targetStart`、`reviewStatus`、`duplicateReview` 等旧字段只能出现在迁移/兼容层或历史快照中，不能写入 v4 canonical question。

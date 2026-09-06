@@ -71,13 +71,13 @@ python tools/run_server.py --port 8000
 
 - `data/questions.json`：网页实际读取的标准题库。它是本机运行数据；从 GitHub 源码首次启动时会由 `public-data/questions.json` 初始化为公开示例题库，免 Python release 首次启动时为空白。教师可通过后台导入包含题型、教材册、文章和题目的完整 JSON
 - `public-data/questions.json`：GitHub 公开示例题库，按每篇文章 1-3 道已复核题目整理，仅用于体验和联调，不是完整教师题库；需要完整题库请联系原作者
-- 题目若无法定位 `word` 在 `sentence` 中的划线位置，会保留原题并标记 `reviewStatus: "abnormal"`；学生端自动跳过，老师可在题库管理中修复后恢复
+- 题目若无法定位 `word` 在 `sentence` 中的划线位置，会保留原题并显示运行时定位异常；学生端自动跳过，老师可在题库管理中修复后恢复
 - `data/expanded_question_specs.json`、`data/questions-complex-archive.json`：本机题库制作或历史归档素材，不提交到公开仓库，也不放入 release
 - `%LOCALAPPDATA%/WenyanQuiz/leaderboard.json`：所有浏览器和应用版本共用的本机排行榜；旧版本的 `data/leaderboard.json` 只用于首次启动时迁移
 - `%LOCALAPPDATA%/WenyanQuiz/answer-records.json`：所有浏览器和应用版本共用的本机答题记录；普通训练与双人 PK 合计只保留最近 1 个月内的最新 100 条，应用升级不会覆盖
 - `%LOCALAPPDATA%/WenyanQuiz/answer-records-backups/`：答题记录保存、折叠、恢复或自动清理前的自动备份；自动轮转保留最近 100 份且不超过 90 天
 - `data/question-bank-history.json`：本机题库导入、导出和撤销导入的只读历史；导入记录不能删除或修改，撤销通过追加事件完成
-- `data/question-reviews.json`：本机教师审查状态、建议答案、选项问题和审查备注
+- `data/questions.json`：完整的 v4 题库、教材目录、教师审查状态和重复题处理结果；旧版 `question-reviews.json` 只在首次升级时作为迁移输入。
 - `data/backups/`：后台每次保存前自动生成的旧文件备份
 - `%LOCALAPPDATA%/WenyanQuiz/backups/`：排行榜每次保存前自动生成的旧文件备份
 - `tools/run_server.py`：本地服务，负责提供网页和持久化保存接口；学生结果通过幂等的 `/api/quiz-results` 提交，不使用管理员写接口；答题记录只通过管理员授权接口读取，学生端不公开历史记录
@@ -108,4 +108,4 @@ GitHub 仓库只包含 `public-data/questions.json` 这份每篇文章 1-3 题�
 - `release/v1.4.10/`：完成前端、后台和本地服务的模块化维护性重构；保持现有答题、PK、题库、记录和排行榜功能及数据边界不变，公开源码包和 Windows 包不包含题库
 - `release/v1.4.11/`：将管理员登录与密码修改迁移到 Windows Launcher；浏览器后台改为一次性 ticket 换取内存会话，正式服务关闭浏览器密码登录，公开源码包和 Windows 包不包含题库
 
-题库 JSON 的完整格式、可直接复制的模版和当前全部目录，可以在后台“题库管理”区域下载唯一文件 `JSON模版导入说明.md`。文件会列出当前全部题型、教材册和篇目 ID；`id` 是程序识别用的本机编号，`label`/`title` 是页面显示名称，题目必须用 `type` 引用题型 ID、用 `articleId` 引用篇目 ID。题目源数据采用“文章归属、目标词、原句、正确义项、固定干扰项、解析、来源和审核状态”的结构。一道题只保存一个考点词：同一句要考两个不同词时，建立两条题目记录并分别填写 `word`、`targetOccurrence`、`targetStart`、选项和解析；同一个词在句中出现多次时，用 `targetOccurrence` 指明第几处，后台选词会自动写入 `targetStart`，服务端会校验两者一致。扩容候选题的来源包括课文注释、文言实词例句和人工整理；正式使用前应依据统编版课文、课下注释及人民教育出版社《高中语文学习任务导引》参考答案逐题复核。后续增加题库时，可以让其他 AI 按该文件制作 JSON，再使用“新增导入题库（合并）”追加；系统会按内容去重，不能只按 ID 判断重复。
+题库 JSON 的完整格式、可直接复制的模版和当前全部目录，可以在后台“题库管理”区域下载唯一文件 `JSON模版导入说明.md`。普通新增题使用 `wenyan-question-import` 1.0；完整题库导出使用 `wenyan-question-bank` 4.0，并保留题库 ID、题目 ID、审查和重复处理结果。题目必须用 `type` 引用题型 ID、用 `articleId` 引用篇目 ID，篇目用 `bookId` 引用教材册 ID；`label`/`title` 只是页面显示名称。一道题只保存一个考点词，同一个词在句中多次出现时用 `targetOccurrence` 指定位置，不再保存 `targetStart`。普通导入的新题由服务端生成 ID 并进入待审，导入前会进行预览和校验。

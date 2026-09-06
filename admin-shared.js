@@ -198,7 +198,7 @@ const postJson = async (url, value) => {
     renderLogin();
   }
   if (!response.ok || !payload?.ok) throw new Error(payload?.error || "请求失败。");
-  if ([API.questionBankImport, API.questionBankRevoke].includes(url)) {
+  if ([API.questionBankImport, API.questionBankApply, API.questionBankRevoke].includes(url)) {
     questionBankEtag = response.headers.get("ETag") || questionBankEtag;
   }
   return payload.data;

@@ -170,9 +170,11 @@ def parse_question(
             )
 
     return {
-        "id": f"gaokao-shici-{number:03d}",
         "number": number,
         "type": "single_choice",
+        "articleId": "imported_article",
+        "sentence": clean_text("".join(context_lines)) or clean_text(stem_tail),
+        "targetOccurrence": 1,
         "rule": infer_rule(stem_tail),
         "word": word,
         "stem": clean_text(stem_tail),
@@ -245,8 +247,8 @@ def convert(input_path: Path) -> dict[str, Any]:
             answers[number],
             input_path.name,
         )
-        if len(question["options"]) < 2:
-            raise ValueError(f"question {number} has fewer than two options")
+        if len(question["options"]) != 4:
+            raise ValueError(f"question {number} must have exactly four options")
         if question["answer"] not in {option["key"] for option in question["options"]}:
             raise ValueError(
                 f"question {number} answer {question['answer']} is not in its options"
@@ -254,23 +256,13 @@ def convert(input_path: Path) -> dict[str, Any]:
         questions.append(question)
 
     return {
+        "format": "wenyan-question-import",
         "schemaVersion": "1.0",
         "title": "高考文言实词与课内教材例句结合练习100题",
         "description": "由用户提供的 Word 题库转换而来，供限时单选题模式使用。",
-        "quizDefaults": {
-            "durationSeconds": 120,
-            "correctScore": 1,
-            "wrongScore": -1,
-            "scoring": {
-                "mode": "fixed",
-                "baseCorrect": 1,
-                "baseWrongPenalty": 1,
-                "correctStreakAfter": 2,
-                "correctStreakScore": 2,
-                "wrongStreakAfter": 2,
-                "wrongStreakPenalty": 2,
-            },
-        },
+        "questionTypes": [{"id": "single_choice", "label": "普通单选题"}],
+        "books": [{"id": "imported_book", "label": "待归类教材", "order": 1}],
+        "catalog": [{"id": "imported_article", "bookId": "imported_book", "unit": "", "title": "待归类文章", "author": ""}],
         "source": {
             "file": input_path.name,
             "format": "docx",

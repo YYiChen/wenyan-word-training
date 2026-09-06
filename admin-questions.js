@@ -47,7 +47,7 @@ const isBuiltInQuestionType = (id) => DEFAULT_QUESTION_TYPES.some((type) => type
 const createQuestionBankTemplate = () => {
   const article = getCatalog()[0] || {
     id: "bx1_article_001",
-    volume: "必修上册",
+    bookId: "book_001",
     unit: "请填写单元",
     title: "请填写文章名称",
     author: "",
@@ -55,27 +55,27 @@ const createQuestionBankTemplate = () => {
   const exampleQuestion = {
     ...QUESTION_BANK_TEMPLATE_EXAMPLE.questions[0],
     articleId: article.id,
-    article: article.title,
-    volume: article.volume,
-    unit: article.unit || "",
   };
   return {
     _templateInstructions: {
       purpose: "本文件用于制作可导入的文言实词四选一题库；下方目录中的 id 是程序识别用的稳定标识，label、title 是给人看的名称。",
-      idVsName: "生成题目时，question.type 使用 questionTypes[].id，question.articleId 使用 catalog[].id；不要把中文名称直接填入这两个字段。question.volume 使用 books[].label。",
+      idVsName: "生成题目时，question.type 使用 questionTypes[].id，question.articleId 使用 catalog[].id；不要把中文名称直接填入这两个字段。篇目使用 catalog.bookId 关联教材册。",
       mergeRule: "题目 ID 只是本机编号。新增导入题库（合并）按文章、考点、原句、出现位置和题目内容去重；完全重复会跳过，细节不同的同核心题会保留并标记为重复候选，导入题自动分配本机编号。",
-      occurrenceRule: "targetOccurrence 从 1 开始，表示 word 在 sentence 中第几次出现；同一个词出现多次时必须明确填写。targetStart 可填写 word 在 sentence 中从 0 开始的字符起点，后台会校验两者一致；无法定位时题目会标记为 abnormal 并跳过答题，等待人工复核。",
+      occurrenceRule: "targetOccurrence 从 1 开始，表示 word 在 sentence 中第几次出现；不填写 targetStart，后台根据原句和考点实时定位。",
     },
-    schemaVersion: "3.0",
+    format: "wenyan-question-import",
+    schemaVersion: "1.0",
     title: "请填写题库名称",
     description: "请说明适用年级、教材范围、教学进度和题目来源。",
     questionTypes: getQuestionTypes(),
     books: getBooks(),
-    catalog: getCatalog().map((item) => ({ ...item })),
+    catalog: getCatalog().map((item) => ({
+      ...item,
+      bookId: item.bookId || getBooks().find((book) => book.label === item.volume)?.id || "",
+      volume: undefined,
+    })).map(({ volume, ...item }) => item),
     quizDefaults: {
       durationSeconds: 120,
-      correctScore: 1,
-      wrongScore: -1,
       scoring: {
         mode: "fixed",
         baseCorrect: 1,
@@ -591,7 +591,10 @@ const mergeQuestionBank = (base, imported) => {
 
   const merged = {
     ...base,
-    schemaVersion: imported.schemaVersion || base.schemaVersion || "3.0",
+    format: "wenyan-question-bank",
+    schemaVersion: "4.0",
+    bankId: base.bankId,
+    workflow: base.workflow || { reviews: {}, duplicateResolutions: {} },
     questionTypes: mergedTypes,
     books: [...bookById.values()],
     catalog,
@@ -618,31 +621,26 @@ const importBankFromFile = async (file, mode = "merge") => {
     throw new Error(`JSON 文件无法读取：${error instanceof Error ? error.message : "格式错误"}`);
   }
   validateImportedBankShape(imported);
+  const preview = await postJson(API.questionBankPreview, { mode, sourceName: file.name, package: imported });
+  const summary = preview.summary || {};
+  const previewText = mode === "replace"
+    ? `确定替换为“${file.name}”吗？当前题库会先备份。导入 ${summary.importedTotal || 0} 道题。`
+    : `确定合并“${file.name}”吗？新增 ${summary.newQuestions || 0} 道，完全相同 ${summary.exactDuplicates || 0} 道，细节修改 ${summary.modified || 0} 道，重大修改 ${summary.majorModified || 0} 道。`;
+  if (!window.confirm(previewText)) return false;
+  let strategy = "preserve_local";
+  if (mode === "merge" && ((summary.modified || 0) + (summary.majorModified || 0) > 0)) {
+    strategy = window.confirm("预览发现已有题目发生修改。点击“确定”使用导入版本，点击“取消”保留本机版本并只合并新增题目。") ? "use_imported" : "preserve_local";
+  }
+  const result = await postJson(API.questionBankApply, { mode, strategy, sourceName: file.name, package: imported, baseEtag: preview.baseEtag });
   if (mode === "replace") {
-    if (!window.confirm(`确定导入“${file.name}”吗？当前题库将被替换，原题库会先自动备份。`)) return false;
-    const result = await postJson(API.questionBankImport, {
-      mode,
-      sourceName: file.name,
-      bank: imported,
-    });
     bank = result.bank;
-    questionBankHistory = normalizeQuestionBankHistory(result.history);
+    questionBankHistory = normalizeQuestionBankHistory(result.history || questionBankHistory);
     const abnormalCount = getAbnormalQuestionCount(bank.questions);
     statusMessage = `已替换为 ${bank.questions.length} 道题${abnormalCount ? `；${abnormalCount} 道划线异常题已标记并跳过答题` : ""}`;
   } else {
-    const merged = mergeQuestionBank(bank, imported);
-    if (!window.confirm(`确定把“${file.name}”新增到当前题库吗？将新增 ${merged.addedQuestions} 道题、跳过 ${merged.skippedQuestions} 道完全重复题、标记 ${merged.duplicateCandidateQuestions} 道重复候选题，并新增 ${merged.addedArticles} 篇文章、${merged.addedBooks} 册教材和 ${merged.addedTypes} 种题型；新增题会自动使用本机编号。`)) return false;
-    const result = await postJson(API.questionBankImport, {
-      mode,
-      sourceName: file.name,
-      bank: merged.bank,
-    });
     bank = result.bank;
-    questionBankHistory = normalizeQuestionBankHistory(result.history);
-    const importedAbnormalCount = merged.addedQuestions > 0
-      ? bank.questions.slice(-merged.addedQuestions).filter(isQuestionAbnormal).length
-      : 0;
-    statusMessage = `合并完成：新增 ${merged.addedQuestions} 道题，跳过 ${merged.skippedQuestions} 道完全重复题，标记 ${merged.duplicateCandidateQuestions} 道重复候选题，自动编号 ${merged.renumberedQuestions} 道${importedAbnormalCount ? `；其中 ${importedAbnormalCount} 道划线异常题已标记并跳过答题` : ""}`;
+    questionBankHistory = normalizeQuestionBankHistory(result.history || questionBankHistory);
+    statusMessage = `合并完成：当前题库共 ${bank.questions.length} 道题，新导入题请在快速审查中确认。`;
   }
   selectedQuestionId = bank.questions[0]?.id || null;
   creatingQuestion = false;
@@ -800,7 +798,8 @@ const saveQuestion = async (form) => {
   };
   bank = await putJson(API.questions, nextBank);
   reviews = normalizeReviews(await fetchJson(API.questionReviews));
-  selectedQuestionId = updated.id;
+  selectedQuestionId = bank.questions.find((question) => question.id === updated.id)
+    ?.id || bank.questions.find((question) => question.number === updated.number && question.word === updated.word)?.id || null;
   creatingQuestion = false;
   statusMessage = current ? "已保存到 questions.json" : "新题目已保存到 questions.json";
   render();

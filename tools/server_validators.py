@@ -6,6 +6,8 @@ import copy
 import hashlib
 import json
 import time
+import uuid
+import uuid
 from typing import Any
 
 from server_config import (
@@ -221,7 +223,9 @@ def validate_duration_seconds(quiz_defaults: dict[str, Any]) -> int:
 def empty_question_bank() -> dict[str, Any]:
     """Return the blank bank used by public source and release packages."""
     return {
-        "schemaVersion": "3.0",
+        "format": "wenyan-question-bank",
+        "schemaVersion": "4.0",
+        "bankId": f"bank_{uuid.uuid4()}",
         "title": "文言实词限时训练（待导入题库）",
         "description": "这是一个空白题库。请管理员在后台导入或新增题库后开始训练。",
         "questionTypes": [],
@@ -229,16 +233,18 @@ def empty_question_bank() -> dict[str, Any]:
         "quizDefaults": {
             "durationSeconds": 120,
             "scoring": dict(DEFAULT_SCORING_CONFIG),
-            "correctScore": DEFAULT_SCORING_CONFIG["baseCorrect"],
-            "wrongScore": -DEFAULT_SCORING_CONFIG["baseWrongPenalty"],
         },
         "catalog": [],
-        "lexicon": [],
-        "source": {"kind": "blank_template", "questionCount": 0},
         "questions": [],
+        "workflow": {"reviews": {}, "duplicateResolutions": {}},
     }
 
 def validate_questions(payload: Any) -> dict[str, Any]:
+    if isinstance(payload, dict) and (
+        payload.get("format") == "wenyan-question-bank"
+        or str(payload.get("schemaVersion", "")) == "4.0"
+    ):
+        return validate_question_bank_v4(payload)
     if not isinstance(payload, dict) or not isinstance(payload.get("questions"), list):
         raise ValueError("题库必须包含 questions 数组。")
     is_blank_bank = len(payload["questions"]) == 0
@@ -956,6 +962,9 @@ def validate_question_bank_history(payload: Any) -> dict[str, Any]:
                 "addedTypeIds": _validate_history_string_list(raw_event.get("addedTypeIds", []), "新增题型 ID"),
                 "beforeHash": str(raw_event.get("beforeHash", "")).strip()[:200],
                 "afterHash": str(raw_event.get("afterHash", "")).strip()[:200],
+                "updatedQuestions": copy.deepcopy(raw_event.get("updatedQuestions", {})) if isinstance(raw_event.get("updatedQuestions", {}), dict) else {},
+                "updatedReviews": copy.deepcopy(raw_event.get("updatedReviews", {})) if isinstance(raw_event.get("updatedReviews", {}), dict) else {},
+                "addedQuestionFingerprints": copy.deepcopy(raw_event.get("addedQuestionFingerprints", {})) if isinstance(raw_event.get("addedQuestionFingerprints", {}), dict) else {},
             })
             if not clean["beforeHash"] or not clean["afterHash"]:
                 raise ValueError(f"题库导入历史第 {position} 项缺少版本校验值。")
@@ -1007,7 +1016,16 @@ def question_bank_history_view(
             if revoked:
                 public.update({"revoked": True, "canRevoke": False, "revokeReason": "本次导入已经撤销。"})
             elif event["mode"] == "merge":
-                public.update({"revoked": False, "canRevoke": True, "revokeReason": ""})
+                can_revoke = True
+                if event.get("addedQuestionFingerprints"):
+                    current_questions = {q["id"]: q for q in question_bank.get("questions", [])}
+                    can_revoke = all(qid not in current_questions or make_question_semantic_fingerprint(current_questions[qid]) == fp for qid, fp in event["addedQuestionFingerprints"].items())
+                if can_revoke:
+                    for qid, delta in event.get("updatedQuestions", {}).items():
+                        current_item = next((q for q in question_bank.get("questions", []) if q["id"] == qid), None)
+                        if current_item is None or make_question_semantic_fingerprint(current_item) != delta.get("afterFingerprint"):
+                            can_revoke = False; break
+                public.update({"revoked": False, "canRevoke": can_revoke, "revokeReason": "" if can_revoke else "本次导入影响的题目后来又被修改，无法安全撤销。"})
             elif current_hash == event["afterHash"]:
                 public.update({"revoked": False, "canRevoke": True, "revokeReason": ""})
             else:
@@ -1080,3 +1098,206 @@ def validate_question_reviews(payload: Any) -> dict[str, Any]:
 
 def empty_question_review() -> dict[str, Any]:
     return validate_question_review({})
+
+# v4 canonical bank helpers. Python is the only authority for these rules.
+def _new_question_id(used: set[str]) -> str:
+    while True:
+        value = f"q_{uuid.uuid4()}"
+        if value not in used:
+            return value
+
+def make_question_core_signature(question: dict[str, Any]) -> tuple[Any, ...]:
+    return (normalize_identity_text(question.get("articleId")), normalize_identity_text(question.get("word")), normalize_identity_text(question.get("sentence")), int(question.get("targetOccurrence", 1)))
+
+def make_question_semantic_fingerprint(question: dict[str, Any]) -> str:
+    value = {"core": list(make_question_core_signature(question)), "detail": list(question_detail_signature(question))}
+    return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+def _v4_review(raw: Any) -> dict[str, Any]:
+    raw = raw if isinstance(raw, dict) else {}
+    status = raw.get("status", "pending")
+    if status not in VALID_REVIEW_STATUSES:
+        raise ValueError("题目审查状态无效。")
+    suggested = raw.get("suggestedAnswer")
+    if suggested is not None and suggested not in VALID_OPTION_KEYS:
+        raise ValueError("suggestedAnswer 必须是 A-D。")
+    issues = raw.get("optionIssues", [])
+    if not isinstance(issues, list) or any(key not in VALID_OPTION_KEYS for key in issues):
+        raise ValueError("optionIssues 必须是 A-D 数组。")
+    return {"status": status, "suggestedAnswer": suggested, "optionIssues": sorted(set(issues)), "note": str(raw.get("note", "")).strip()[:2000], "reviewedAt": str(raw.get("reviewedAt", "")).strip()[:60]}
+
+def question_issues(question: dict[str, Any]) -> list[dict[str, str]]:
+    starts = find_word_occurrences(str(question.get("sentence", "")), str(question.get("word", "")))
+    occurrence = question.get("targetOccurrence", 1)
+    if not starts:
+        return [{"code": "WORD_NOT_FOUND", "message": "考察词不在原句中。"}]
+    if not isinstance(occurrence, int) or isinstance(occurrence, bool) or not 1 <= occurrence <= len(starts):
+        return [{"code": "TARGET_OCCURRENCE_OUT_OF_RANGE", "message": "考察词出现次数无效。"}]
+    return []
+
+def _v4_question(raw: Any, position: int, used: set[str], catalog_ids: set[str], type_ids: set[str], generate_id: bool = False) -> dict[str, Any]:
+    if not isinstance(raw, dict): raise ValueError(f"第 {position} 题不是对象。")
+    source = copy.deepcopy(raw)
+    qid = source.get("id")
+    if generate_id or not isinstance(qid, str) or not qid.strip(): qid = _new_question_id(used)
+    if not isinstance(qid, str) or not qid.strip() or qid != qid.strip() or qid in used: raise ValueError(f"第 {position} 题的 id 缺失或重复。")
+    used.add(qid)
+    if source.get("type", "context_meaning") not in type_ids: raise ValueError(f"第 {position} 题的题型不存在。")
+    if source.get("articleId") not in catalog_ids: raise ValueError(f"第 {position} 题的篇目不存在。")
+    word, sentence = str(source.get("word", "")).strip(), str(source.get("sentence", "")).strip()
+    if not word or not sentence: raise ValueError(f"第 {position} 题的 word 和 sentence 不能为空。")
+    occurrence = source.get("targetOccurrence", 1)
+    if isinstance(occurrence, bool) or not isinstance(occurrence, int) or occurrence < 1: raise ValueError(f"第 {position} 题的 targetOccurrence 无效。")
+    options = source.get("options")
+    if not isinstance(options, list) or len(options) != 4 or {x.get("key") for x in options if isinstance(x, dict)} != VALID_OPTION_KEYS: raise ValueError(f"第 {position} 题必须有 A-D 四个选项。")
+    clean_options = []
+    for option in options:
+        if not isinstance(option, dict) or not isinstance(option.get("text"), str) or not option["text"].strip(): raise ValueError(f"第 {position} 题的选项不完整。")
+        clean_options.append({"key": option["key"], "text": option["text"].strip()})
+    if len({x["text"] for x in clean_options}) != 4: raise ValueError(f"第 {position} 题的选项不能重复。")
+    if source.get("answer") not in VALID_OPTION_KEYS: raise ValueError(f"第 {position} 题的答案必须为 A-D。")
+    number = source.get("number", position)
+    if isinstance(number, bool) or not isinstance(number, int) or number < 1: raise ValueError(f"第 {position} 题的 number 无效。")
+    result = {"id": qid, "number": number, "type": source.get("type", "context_meaning"), "articleId": source["articleId"], "word": word, "sentence": sentence, "targetOccurrence": occurrence, "stem": str(source.get("stem", "")).strip(), "options": clean_options, "answer": source["answer"], "explanation": str(source.get("explanation", "")).strip()}
+    for key in ("source", "rule", "context", "supportingItems", "rawText"):
+        if key in source: result[key] = source[key]
+    return result
+
+def _v4_duplicates(questions: list[dict[str, Any]], stored: Any) -> dict[str, Any]:
+    groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+    for q in questions: groups.setdefault(make_question_core_signature(q), []).append(q)
+    output = {}
+    stored = stored if isinstance(stored, dict) else {}
+    for core, members in groups.items():
+        if len(members) < 2 or len({tuple(question_detail_signature(q)) for q in members}) < 2: continue
+        gid = make_duplicate_group_id(core)
+        fingerprint = hashlib.sha256("|".join(f"{q['id']}:{make_question_semantic_fingerprint(q)}" for q in sorted(members, key=lambda x: x["id"])).encode()).hexdigest()
+        old = stored.get(gid) if isinstance(stored.get(gid), dict) else {}
+        decisions = old.get("decisions", {}) if old.get("fingerprint") == fingerprint else {}
+        output[gid] = {"fingerprint": fingerprint, "questionIds": [q["id"] for q in members], "decisions": {q["id"]: decisions[q["id"]] for q in members if decisions.get(q["id"]) in {"kept", "skipped"}}, "updatedAt": old.get("updatedAt", "")}
+    return output
+
+def validate_question_bank_v4(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict) or payload.get("format") != "wenyan-question-bank" or str(payload.get("schemaVersion")) != "4.0": raise ValueError("题库必须是 wenyan-question-bank 4.0 格式。")
+    bank_id = payload.get("bankId")
+    if not isinstance(bank_id, str) or not bank_id.strip(): raise ValueError("题库缺少 bankId。")
+    books, catalog, types, raw_questions = (payload.get(k, []) for k in ("books", "catalog", "questionTypes", "questions"))
+    if not all(isinstance(x, list) for x in (books, catalog, types, raw_questions)): raise ValueError("题库目录和 questions 必须是数组。")
+    book_ids, clean_books = set(), []
+    for item in books:
+        if not isinstance(item, dict) or not str(item.get("id", "")).strip() or not str(item.get("label", "")).strip() or item["id"] in book_ids: raise ValueError("教材册目录无效或重复。")
+        book_ids.add(item["id"]); clean_books.append(copy.deepcopy(item))
+    type_ids, clean_types = set(), []
+    for item in types:
+        if not isinstance(item, dict) or not str(item.get("id", "")).strip() or not str(item.get("label", "")).strip() or item["id"] in type_ids: raise ValueError("题型目录无效或重复。")
+        type_ids.add(item["id"]); clean_types.append(copy.deepcopy(item))
+    # Built-in question types remain available even in a blank bank whose
+    # directory has not been materialized yet; custom types are additive.
+    type_ids |= set(VALID_TYPES)
+    article_ids, clean_catalog = set(), []
+    for item in catalog:
+        if not isinstance(item, dict) or not str(item.get("id", "")).strip() or item["id"] in article_ids or item.get("bookId") not in book_ids: raise ValueError("篇目目录无效，必须引用有效 bookId。")
+        article_ids.add(item["id"]); clean_catalog.append(copy.deepcopy(item))
+    defaults = dict(payload.get("quizDefaults") or {}); defaults["durationSeconds"] = validate_duration_seconds(defaults); defaults["scoring"] = validate_scoring_config(defaults)
+    used, questions = set(), []
+    for pos, raw in enumerate(raw_questions, 1): questions.append(_v4_question(raw, pos, used, article_ids, type_ids))
+    numbers = [q["number"] for q in questions]
+    if len(numbers) != len(set(numbers)): raise ValueError("题库存在重复题号。")
+    workflow = payload.get("workflow") if isinstance(payload.get("workflow"), dict) else {}
+    raw_reviews = workflow.get("reviews") if isinstance(workflow.get("reviews"), dict) else {}
+    reviews = {q["id"]: _v4_review(raw_reviews.get(q["id"])) for q in questions}
+    return {"format": "wenyan-question-bank", "schemaVersion": "4.0", "bankId": bank_id.strip(), "title": str(payload.get("title", "")).strip(), "description": str(payload.get("description", "")).strip(), "questionTypes": clean_types, "books": clean_books, "catalog": clean_catalog, "quizDefaults": defaults, "questions": questions, "workflow": {"reviews": reviews, "duplicateResolutions": _v4_duplicates(questions, workflow.get("duplicateResolutions"))}}
+
+def question_bank_diagnostics(bank: dict[str, Any]) -> dict[str, Any]:
+    decisions = {}; group_members = {}
+    for gid, group in bank.get("workflow", {}).get("duplicateResolutions", {}).items():
+        decisions.update(group.get("decisions", {}))
+        for qid in group.get("questionIds", list(group.get("decisions", {}))): group_members[qid] = (gid, group.get("decisions", {}).get(qid))
+    issues = {q["id"]: question_issues(q) for q in bank["questions"]}; availability = {}
+    for q in bank["questions"]:
+        review = bank["workflow"]["reviews"][q["id"]]; decision = decisions.get(q["id"])
+        duplicate_blocked = q["id"] in group_members and decision != "kept"
+        playable = not issues[q["id"]] and review["status"] == "passed" and not duplicate_blocked
+        availability[q["id"]] = {"playable": playable, "issues": issues[q["id"]], "reason": "playable" if playable else "blocked"}
+    return {"issues": issues, "availability": availability, "pendingReviewCount": sum(r["status"] == "pending" for r in bank["workflow"]["reviews"].values())}
+
+def _enrich_question_views(bank: dict[str, Any], include_workflow: bool) -> dict[str, Any]:
+    view = copy.deepcopy(bank) if include_workflow else {k: copy.deepcopy(bank[k]) for k in ("format", "schemaVersion", "title", "description", "questionTypes", "books", "catalog", "quizDefaults", "questions")}
+    diagnostics = question_bank_diagnostics(bank)
+    for article in view.get("catalog", []):
+        book = next((b for b in bank["books"] if b["id"] == article.get("bookId")), {})
+        article["volume"] = book.get("label", "")
+    duplicate_groups = {}
+    for core, members in _group_v4_questions(bank["questions"]).items():
+        if len(members) >= 2 and len({tuple(question_detail_signature(q)) for q in members}) >= 2:
+            gid = make_duplicate_group_id(core); stored = bank["workflow"]["duplicateResolutions"].get(gid, {})
+            duplicate_groups.update({q["id"]: {"status": stored.get("decisions", {}).get(q["id"], "pending"), "groupId": gid, "relatedQuestionIds": [x["id"] for x in members]} for q in members})
+    for q in view["questions"]:
+        article = next((a for a in bank["catalog"] if a["id"] == q["articleId"]), {}); book = next((b for b in bank["books"] if b["id"] == article.get("bookId")), {})
+        q.update({"article": article.get("title", ""), "volume": book.get("label", ""), "unit": article.get("unit", "")})
+        q["availability"] = diagnostics["availability"][q["id"]]
+        if include_workflow:
+            q["reviewStatus"] = "verified" if bank["workflow"]["reviews"][q["id"]]["status"] == "passed" else "candidate"
+        if include_workflow and q["id"] in duplicate_groups: q["duplicateReview"] = duplicate_groups[q["id"]]
+    if include_workflow: view["diagnostics"] = diagnostics
+    return view
+
+def student_question_bank_view(bank: dict[str, Any]) -> dict[str, Any]: return _enrich_question_views(bank, False)
+def admin_question_bank_view(bank: dict[str, Any]) -> dict[str, Any]: return _enrich_question_views(bank, True)
+
+def _group_v4_questions(questions: list[dict[str, Any]]) -> dict[tuple[Any, ...], list[dict[str, Any]]]:
+    groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+    for question in questions: groups.setdefault(make_question_core_signature(question), []).append(question)
+    return groups
+
+def validate_question_import(payload: Any, current: dict[str, Any], *, generate_ids: bool = True) -> dict[str, Any]:
+    if not isinstance(payload, dict) or payload.get("format") != "wenyan-question-import" or str(payload.get("schemaVersion")) != "1.0":
+        raise ValueError("新增题目导入必须是 wenyan-question-import 1.0 格式。")
+    books = payload.get("books", current.get("books", [])); catalog = payload.get("catalog", current.get("catalog", [])); types = payload.get("questionTypes", current.get("questionTypes", []))
+    draft = {"format": "wenyan-question-bank", "schemaVersion": "4.0", "bankId": current["bankId"], "title": payload.get("title", current.get("title", "")), "description": payload.get("description", current.get("description", "")), "books": books, "catalog": catalog, "questionTypes": types, "quizDefaults": current.get("quizDefaults", {}), "questions": payload.get("questions", []), "workflow": {"reviews": {}, "duplicateResolutions": {}}}
+    used = {q["id"] for q in current["questions"]}; article_ids = {x.get("id") for x in catalog}; type_ids = {x.get("id") for x in types}; normalized = []
+    used_numbers = {int(q.get("number", 0)) for q in current.get("questions", [])}; next_number = max(used_numbers or {0}) + 1
+    for pos, raw in enumerate(draft["questions"], 1):
+        item = copy.deepcopy(raw)
+        if generate_ids or item.get("number") in used_numbers or not isinstance(item.get("number"), int):
+            item["number"] = next_number; next_number += 1
+        used_numbers.add(item["number"])
+        normalized.append(_v4_question(item, pos, used, article_ids, type_ids, generate_id=generate_ids))
+    draft["questions"] = normalized
+    result = validate_question_bank_v4(draft)
+    result["importKind"] = "external"
+    result["workflow"] = {"reviews": {q["id"]: _v4_review({}) for q in result["questions"]}, "duplicateResolutions": {}}
+    return result
+
+def question_import_preview(current: dict[str, Any], incoming: dict[str, Any], mode: str) -> dict[str, Any]:
+    imported = incoming["questions"]; current_by_id = {q["id"]: q for q in current["questions"]}; same_bank = incoming.get("importKind") != "external" and incoming.get("format") == "wenyan-question-bank" and incoming.get("bankId") == current.get("bankId")
+    summary = {"importedTotal": len(imported), "unchanged": 0, "newQuestions": 0, "modified": 0, "majorModified": 0, "exactDuplicates": 0, "duplicateCandidates": 0, "reviewConflicts": 0}
+    conflicts = []
+    for q in imported:
+        local = current_by_id.get(q["id"]) if same_bank else None
+        if local is None:
+            if any(make_question_semantic_fingerprint(q) == make_question_semantic_fingerprint(old) for old in current["questions"]): summary["exactDuplicates"] += 1
+            else: summary["newQuestions"] += 1
+        elif make_question_semantic_fingerprint(local) == make_question_semantic_fingerprint(q):
+            summary["unchanged"] += 1
+            local_review = current.get("workflow", {}).get("reviews", {}).get(q["id"], {})
+            incoming_review = incoming.get("workflow", {}).get("reviews", {}).get(q["id"], {})
+            if local_review.get("status") not in {None, "pending"} and incoming_review.get("status") not in {None, "pending", local_review.get("status")}: summary["reviewConflicts"] += 1; conflicts.append({"questionId": q["id"], "kind": "review", "message": "审查结论不同"})
+        elif make_question_core_signature(local) == make_question_core_signature(q): summary["modified"] += 1
+        else: summary["majorModified"] += 1
+    return {"mode": mode, "format": incoming.get("format"), "sameBank": same_bank, "baseEtag": make_json_etag(current), "summary": summary, "conflicts": conflicts}
+
+def remap_foreign_bank_questions(bank: dict[str, Any], used: set[str]) -> dict[str, Any]:
+    result = copy.deepcopy(bank); mapping = {}
+    for q in result["questions"]:
+        old = q["id"]; new = _new_question_id(used); mapping[old] = new; q["id"] = new
+    old_reviews = result.get("workflow", {}).get("reviews", {})
+    result["workflow"] = {"reviews": {q["id"]: _v4_review({}) for q in result["questions"]}, "duplicateResolutions": {}}
+    return result
+
+def drop_exact_duplicates(bank: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+    existing = {make_question_semantic_fingerprint(q) for q in current.get("questions", [])}
+    result = copy.deepcopy(bank)
+    result["questions"] = [q for q in result.get("questions", []) if make_question_semantic_fingerprint(q) not in existing]
+    result["workflow"] = {"reviews": {q["id"]: _v4_review({}) for q in result["questions"]}, "duplicateResolutions": {}}
+    return result

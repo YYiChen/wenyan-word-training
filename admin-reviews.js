@@ -320,12 +320,16 @@ const saveDuplicateReviewStatus = async (questionId, status) => {
   const current = bank.questions.find((question) => question.id === questionId);
   const duplicateReview = getDuplicateReview(current);
   if (!current || !duplicateReview) throw new Error("找不到这道重复候选题。");
-  bank = await putJson(API.questions, {
-    ...bank,
-    questions: bank.questions.map((question) => question.id === questionId
-      ? { ...question, duplicateReview: { ...duplicateReview, status } }
-      : question),
-  });
+  const groupId = duplicateReview.groupId;
+  const currentGroup = bank.workflow?.duplicateResolutions?.[groupId] || { questionIds: duplicateReview.relatedQuestionIds, decisions: {} };
+  const nextWorkflow = {
+    ...(bank.workflow || {}),
+    duplicateResolutions: {
+      ...((bank.workflow || {}).duplicateResolutions || {}),
+      [groupId]: { ...currentGroup, questionIds: duplicateReview.relatedQuestionIds, decisions: { ...(currentGroup.decisions || {}), [questionId]: status }, updatedAt: new Date().toISOString() },
+    },
+  };
+  bank = await putJson(API.questions, { ...bank, workflow: nextWorkflow });
   const savedQuestion = bank.questions.find((question) => question.id === questionId) || current;
   statusMessage = status === "kept"
     ? isQuestionAbnormal(savedQuestion)

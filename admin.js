@@ -1,13 +1,15 @@
 const adminApp = document.querySelector("#admin-app");
 
 const API = {
-  questions: "./api/questions",
+  questions: "./api/admin-question-bank",
   leaderboard: "./api/leaderboard",
   answerRecords: "./api/answer-records",
   answerRecordsImport: "./api/answer-records/import",
   questionReviews: "./api/question-reviews",
   questionBankHistory: "./api/question-bank-history",
   questionBankImport: "./api/question-bank-import",
+  questionBankPreview: "./api/question-bank-import/preview",
+  questionBankApply: "./api/question-bank-import/apply",
   questionBankRevoke: "./api/question-bank-history/revoke",
   adminAuth: "./api/admin-auth",
   adminLaunchSession: "./api/admin-launch-session",

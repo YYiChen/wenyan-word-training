@@ -167,7 +167,7 @@ update_helper -> update-manifest.json（只处理代码包）
 ### 源码运行
 
 - `data/questions.json`：实际题库。
-- `data/question-reviews.json`：教师审查状态。
+- `data/questions.json.workflow.reviews`：教师审查状态；旧 `data/question-reviews.json` 仅作为升级迁移输入。
 - `data/question-bank-history.json`：导入/导出/撤销审计历史。
 - `data/backups/`：题库、审查和历史等应用旁 JSON 的自动备份。
 
@@ -260,3 +260,6 @@ RUNTIME_PYTHON_FILES
 ## 11. 当前仓库树摘要
 
 运行代码在根目录的 HTML/JS/CSS、`tools/` 服务和构建脚本；测试在 `tests/` 与 `tools/test_*.js`；公开样例在 `public-data/`；`data/`、`release/`、`release-build-v*/` 和缓存目录是本机运行/构建产物，按 `.gitignore` 不属于公开代码交付面。当前本地还存在空的 `demos/` 目录，但它没有运行清单文件，也不是正式运行依赖。
+- 题库 Schema v4：`data/questions.json` 是完整教师题库的 canonical 文件，目录、题目、`bankId`、训练默认设置以及 `workflow.reviews`/`workflow.duplicateResolutions` 均在同一份 v4 文档中。旧版 `question-reviews.json` 仅用于 v3 首次升级迁移，不再作为运行时审查真相源。
+- 学生端读取 `/api/questions` 获得无教师工作流的投影；管理员读取 `/api/admin-question-bank` 获得完整题库和派生诊断。题目是否可答由服务端计算，定位异常、未通过审查和未处理重复候选均会阻止抽题。
+- 普通新增题支持 `/api/question-bank-import/preview` 与 `/api/question-bank-import/apply`；完整题库导入继续兼容原有入口，应用前会校验题库 ETag。

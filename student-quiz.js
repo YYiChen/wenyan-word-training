@@ -186,8 +186,7 @@ const getSelectedQuestions = () => {
   const selectedVolumes = new Set(startSelection.volumes);
   const selectedArticleIds = new Set(startSelection.articleIds);
   return bank.questions.filter((question) => (
-    !["abnormal", "candidate", "needs_revision"].includes(question.reviewStatus)
-    && !["pending", "skipped"].includes(question.duplicateReview?.status)
+    question.availability?.playable === true
     && selectedVolumes.has(question.volume) && selectedArticleIds.has(question.articleId)
   ));
 };
@@ -241,8 +240,8 @@ const renderStart = () => {
   setPkShellClass(false);
   const config = getQuizConfig();
   const hasQuestions = bank.questions.length > 0;
-  const abnormalCount = bank.questions.filter((question) => question.reviewStatus === "abnormal").length;
-  const candidateCount = bank.questions.filter((question) => question.reviewStatus === "candidate").length;
+  const abnormalCount = bank.questions.filter((question) => question.availability?.reason === "invalid_or_duplicate").length;
+  const candidateCount = bank.questions.filter((question) => question.availability?.reason === "review_pending").length;
   const volumes = getBooks().map((book) => book.label);
   const selectedVolumes = normalizeSelection(startSelection.volumes, volumes);
   const availableArticles = getAvailableArticles(selectedVolumes);

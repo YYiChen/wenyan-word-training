@@ -6,6 +6,7 @@ import copy
 import json
 import secrets
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -28,10 +29,24 @@ from server_validators import (
     validate_question_bank_history,
     validate_question_reviews,
     validate_questions,
+    validate_question_bank_v4,
+    make_question_semantic_fingerprint,
 )
 
 
 _BACKUP_WRITER: Callable[..., None] | None = None
+
+
+def build_import_delta(previous: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+    old_q = {q["id"]: q for q in previous["questions"]}; new_q = {q["id"]: q for q in current["questions"]}
+    added = [qid for qid in new_q if qid not in old_q]
+    updated = {}
+    for qid in old_q.keys() & new_q.keys():
+        if old_q[qid] != new_q[qid]:
+            updated[qid] = {"before": copy.deepcopy(old_q[qid]), "afterFingerprint": make_question_semantic_fingerprint(new_q[qid])}
+    old_reviews = previous.get("workflow", {}).get("reviews", {}); new_reviews = current.get("workflow", {}).get("reviews", {})
+    updated_reviews = {qid: {"before": copy.deepcopy(old_reviews.get(qid)), "after": copy.deepcopy(new_reviews.get(qid))} for qid in old_reviews.keys() & new_reviews.keys() if old_reviews.get(qid) != new_reviews.get(qid)}
+    return {"addedQuestionFingerprints": {qid: make_question_semantic_fingerprint(new_q[qid]) for qid in added}, "updatedQuestions": updated, "updatedReviews": updated_reviews}
 
 
 def configure_paths(
@@ -126,30 +141,9 @@ def sync_question_reviews_after_bank_write(
 
 def ensure_question_reviews() -> None:
     try:
-        question_bank = validate_questions(read_json(QUESTIONS_PATH))
-        current = validate_question_reviews(read_json(QUESTION_REVIEWS_PATH, empty_question_reviews()))
-        question_ids = {question["id"] for question in question_bank["questions"]}
-        clean_reviews = {
-            question_id: review
-            for question_id, review in current["reviews"].items()
-            if question_id in question_ids
-        }
-        normalized = {"schemaVersion": 1, "reviews": clean_reviews}
-        if normalized != current:
-            backup_and_write(QUESTION_REVIEWS_PATH, normalized)
-
-        # Repair the publication state of existing records as well. This is
-        # needed when an older server saved needs_revision only in the review
-        # file, leaving the question incorrectly visible to students.
-        synced_bank = copy.deepcopy(question_bank)
-        bank_changed = any(
-            apply_question_review_publication_status(synced_bank, question_id, review)
-            for question_id, review in clean_reviews.items()
-        )
-        if bank_changed:
-            backup_and_write(QUESTIONS_PATH, synced_bank)
+        validate_question_bank_v4(read_json(QUESTIONS_PATH))
     except (OSError, json.JSONDecodeError, ValueError) as error:
-        raise RuntimeError(f"题目审查记录检查失败，请检查 {QUESTION_REVIEWS_PATH}：{error}") from error
+        raise RuntimeError(f"v4 题库审查状态检查失败，请检查 {QUESTIONS_PATH}：{error}") from error
 
 def ensure_question_bank_history() -> None:
     try:
@@ -196,39 +190,34 @@ def revoke_question_bank_import(event_id: str) -> tuple[dict[str, Any], dict[str
             raise ValueError("本次替换导入后题库已有变化，不能安全撤销；请先处理最近一次题库变更。")
         next_bank = validate_questions(copy.deepcopy(target["beforeBank"]))
     else:
-        removed_question_ids = set(target["addedQuestionIds"])
-        next_bank = copy.deepcopy(current_bank)
-        next_bank["questions"] = [
-            question
-            for question in next_bank["questions"]
-            if question["id"] not in removed_question_ids
-        ]
-        remaining_questions = next_bank["questions"]
-        used_article_ids = {question["articleId"] for question in remaining_questions}
-        added_article_ids = set(target["addedArticleIds"])
-        next_bank["catalog"] = [
-            article
-            for article in next_bank.get("catalog", [])
-            if article["id"] not in added_article_ids or article["id"] in used_article_ids
-        ]
-        if "books" in next_bank:
-            used_volumes = {question["volume"] for question in remaining_questions}
-            used_volumes.update(article["volume"] for article in next_bank.get("catalog", []))
-            added_book_ids = set(target["addedBookIds"])
-            next_bank["books"] = [
-                book
-                for book in next_bank.get("books", [])
-                if book["id"] not in added_book_ids or book["label"] in used_volumes
-            ]
-        if "questionTypes" in next_bank:
-            used_types = {question["type"] for question in remaining_questions}
-            added_type_ids = set(target["addedTypeIds"])
-            next_bank["questionTypes"] = [
-                question_type
-                for question_type in next_bank.get("questionTypes", [])
-                if question_type["id"] not in added_type_ids or question_type["id"] in used_types
-            ]
-        next_bank = validate_questions(next_bank)
+        if current_bank.get("schemaVersion") == "4.0":
+            next_bank = copy.deepcopy(current_bank)
+            by_id = {q["id"]: q for q in next_bank["questions"]}
+            for qid, fingerprint in target.get("addedQuestionFingerprints", {}).items():
+                if qid in by_id and make_question_semantic_fingerprint(by_id[qid]) != fingerprint:
+                    raise ValueError("本次导入新增的题目后来又被修改，无法安全撤销。")
+            for qid, delta in target.get("updatedQuestions", {}).items():
+                current_item = by_id.get(qid)
+                if current_item is None or make_question_semantic_fingerprint(current_item) != delta.get("afterFingerprint"):
+                    raise ValueError("本次导入影响的题目后来又被修改，无法安全撤销。")
+                by_id[qid] = copy.deepcopy(delta.get("before"))
+            next_bank["questions"] = [q for q in by_id.values() if q["id"] not in set(target.get("addedQuestionIds", []))]
+            reviews = next_bank["workflow"]["reviews"]
+            for qid, delta in target.get("updatedReviews", {}).items():
+                if reviews.get(qid) != delta.get("after"):
+                    raise ValueError("本次导入影响的审查结果后来又被修改，无法安全撤销。")
+                if delta.get("before") is None: reviews.pop(qid, None)
+                else: reviews[qid] = copy.deepcopy(delta["before"])
+            next_bank = validate_question_bank_v4(next_bank)
+        else:
+            removed_question_ids = set(target["addedQuestionIds"])
+            next_bank = copy.deepcopy(current_bank)
+            next_bank["questions"] = [question for question in next_bank["questions"] if question["id"] not in removed_question_ids]
+            remaining_questions = next_bank["questions"]
+            used_article_ids = {question["articleId"] for question in remaining_questions}
+            added_article_ids = set(target["addedArticleIds"])
+            next_bank["catalog"] = [article for article in next_bank.get("catalog", []) if article["id"] not in added_article_ids or article["id"] in used_article_ids]
+            next_bank = validate_questions(next_bank)
 
     if next_bank != current_bank:
         backup_and_write(QUESTIONS_PATH, next_bank)
@@ -248,12 +237,62 @@ def ensure_question_bank() -> None:
         if not QUESTIONS_PATH.exists():
             initial_bank = empty_question_bank()
             if PUBLIC_QUESTION_BANK_PATH.exists():
-                initial_bank = validate_questions(read_json(PUBLIC_QUESTION_BANK_PATH))
+                public_raw = read_json(PUBLIC_QUESTION_BANK_PATH)
+                initial_bank = validate_question_bank_v4(public_raw) if str(public_raw.get("schemaVersion")) == "4.0" else _migrate_v3_to_v4(public_raw)
             backup_and_write(QUESTIONS_PATH, initial_bank)
             return
         raw = read_json(QUESTIONS_PATH)
-        normalized = validate_questions(raw)
+        if isinstance(raw, dict) and str(raw.get("schemaVersion")) == "4.0":
+            normalized = validate_question_bank_v4(raw)
+        else:
+            normalized = _migrate_v3_to_v4(raw)
         if normalized != raw:
             backup_and_write(QUESTIONS_PATH, normalized)
     except (OSError, json.JSONDecodeError, ValueError) as error:
         raise RuntimeError(f"题库检查失败，请检查 {QUESTIONS_PATH}：{error}") from error
+
+
+def _migrate_v3_to_v4(raw: Any) -> dict[str, Any]:
+    """One-way local migration; existing question IDs are retained."""
+    legacy = validate_questions(raw)
+    books = []
+    by_label = {}
+    for index, book in enumerate(legacy.get("books", []), 1):
+        label = str(book.get("label", "")).strip()
+        bid = str(book.get("id", "")).strip() or f"book_{index}"
+        by_label[label] = bid
+        books.append({"id": bid, "label": label, "order": book.get("order", index)})
+    for article in legacy.get("catalog", []):
+        label = str(article.get("volume", "")).strip()
+        if label and label not in by_label:
+            by_label[label] = f"book_{len(books) + 1}"
+            books.append({"id": by_label[label], "label": label, "order": len(books) + 1})
+    catalog = []
+    for article in legacy.get("catalog", []):
+        item = {key: value for key, value in article.items() if key not in {"volume"}}
+        item["bookId"] = by_label.get(str(article.get("volume", "")).strip(), "")
+        catalog.append(item)
+    legacy_reviews = read_json(QUESTION_REVIEWS_PATH, empty_question_reviews())
+    review_map = legacy_reviews.get("reviews", {}) if isinstance(legacy_reviews, dict) else {}
+    reviews = {}
+    questions = []
+    for question in legacy["questions"]:
+        item = copy.deepcopy(question)
+        item.pop("article", None); item.pop("volume", None); item.pop("unit", None)
+        item.pop("targetStart", None); item.pop("reviewStatus", None); item.pop("reviewStatusBeforeAbnormal", None); item.pop("reviewNote", None); item.pop("duplicateReview", None)
+        starts = question_core_signature(question)[3]
+        if not isinstance(item.get("targetOccurrence"), int): item["targetOccurrence"] = 1
+        old_status = question.get("reviewStatus")
+        old_review = review_map.get(question["id"], {})
+        status = old_review.get("status") if isinstance(old_review, dict) else None
+        if status not in {"pending", "passed", "needs_revision", "skipped"}:
+            status = {"verified": "passed", "candidate": "pending", "admin_created": "pending", "admin_edited": "pending"}.get(old_status, "pending")
+        reviews[question["id"]] = {
+            "status": status, "suggestedAnswer": old_review.get("suggestedAnswer") if isinstance(old_review, dict) else None,
+            "optionIssues": old_review.get("optionIssues", []) if isinstance(old_review, dict) else [],
+            "note": old_review.get("note", "") if isinstance(old_review, dict) else str(question.get("reviewNote", "")),
+            "reviewedAt": old_review.get("reviewedAt", "") if isinstance(old_review, dict) else "",
+        }
+        questions.append(item)
+    result = {"format": "wenyan-question-bank", "schemaVersion": "4.0", "bankId": f"bank_{uuid.uuid4()}", "title": legacy.get("title", ""), "description": legacy.get("description", ""), "questionTypes": legacy.get("questionTypes", []), "books": books, "catalog": catalog, "quizDefaults": legacy.get("quizDefaults", {}), "questions": questions, "workflow": {"reviews": reviews, "duplicateResolutions": {}}}
+    return validate_question_bank_v4(result)

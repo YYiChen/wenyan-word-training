@@ -1,5 +1,7 @@
 {
-  "schemaVersion": "3.0",
+  "format": "wenyan-question-bank",
+  "schemaVersion": "4.0",
+  "bankId": "bank_dc83a88c-03f3-4682-b275-372b56a44699",
   "title": "文言实词限时训练（公开示例题库）",
   "description": "GitHub 公开示例题库：每篇文章保留 1-3 道已复核题目，仅用于体验程序。完整教师题库请联系原作者。",
   "questionTypes": [
@@ -51,6 +53,211 @@
       "order": 5
     }
   ],
+  "catalog": [
+    {
+      "id": "bx1_quxue",
+      "unit": "第三单元",
+      "title": "劝学",
+      "author": "荀子",
+      "bookId": "bx1"
+    },
+    {
+      "id": "bx1_shishuo",
+      "unit": "第六单元",
+      "title": "师说",
+      "author": "韩愈",
+      "bookId": "bx1"
+    },
+    {
+      "id": "bx1_chibifu",
+      "unit": "第七单元",
+      "title": "赤壁赋",
+      "author": "苏轼",
+      "bookId": "bx1"
+    },
+    {
+      "id": "bx1_dengtaishanji",
+      "unit": "第七单元",
+      "title": "登泰山记",
+      "author": "姚鼐",
+      "bookId": "bx1"
+    },
+    {
+      "id": "bx2_shizuo",
+      "unit": "第一单元",
+      "title": "子路、曾皙、冉有、公西华侍坐",
+      "author": "《论语》",
+      "bookId": "bx2"
+    },
+    {
+      "id": "bx2_qihuanjinwen",
+      "unit": "第一单元",
+      "title": "齐桓晋文之事",
+      "author": "《孟子》",
+      "bookId": "bx2"
+    },
+    {
+      "id": "bx2_paoding",
+      "unit": "第二单元",
+      "title": "庖丁解牛",
+      "author": "《庄子》",
+      "bookId": "bx2"
+    },
+    {
+      "id": "bx2_zhuwuzhiqin",
+      "unit": "第三单元",
+      "title": "烛之武退秦师",
+      "author": "《左传》",
+      "bookId": "bx2"
+    },
+    {
+      "id": "bx2_hongmenyan",
+      "unit": "第三单元",
+      "title": "鸿门宴",
+      "author": "司马迁",
+      "bookId": "bx2"
+    },
+    {
+      "id": "bx2_jian_taizong",
+      "unit": "第四单元",
+      "title": "谏太宗十思疏",
+      "author": "魏征",
+      "bookId": "bx2"
+    },
+    {
+      "id": "bx2_dasima",
+      "unit": "第八单元",
+      "title": "答司马谏议书",
+      "author": "王安石",
+      "bookId": "bx2"
+    },
+    {
+      "id": "bx2_afanggongfu",
+      "unit": "第八单元",
+      "title": "阿房宫赋",
+      "author": "杜牧",
+      "bookId": "bx2"
+    },
+    {
+      "id": "bx2_liuguolun",
+      "unit": "第八单元",
+      "title": "六国论",
+      "author": "苏洵",
+      "bookId": "bx2"
+    },
+    {
+      "id": "xx1_lunyu12",
+      "unit": "第二单元",
+      "title": "《论语》十二章",
+      "author": "《论语》",
+      "bookId": "xxbs"
+    },
+    {
+      "id": "xx1_daxue",
+      "unit": "第二单元",
+      "title": "大学之道",
+      "author": "《礼记》",
+      "bookId": "xxbs"
+    },
+    {
+      "id": "xx1_buren",
+      "unit": "第二单元",
+      "title": "人皆有不忍人之心",
+      "author": "《孟子》",
+      "bookId": "xxbs"
+    },
+    {
+      "id": "xx1_laozi",
+      "unit": "第二单元",
+      "title": "《老子》四章",
+      "author": "《老子》",
+      "bookId": "xxbs"
+    },
+    {
+      "id": "xx1_wushi",
+      "unit": "第二单元",
+      "title": "五石之瓠",
+      "author": "《庄子》",
+      "bookId": "xxbs"
+    },
+    {
+      "id": "xx1_jianai",
+      "unit": "第二单元",
+      "title": "兼爱",
+      "author": "《墨子》",
+      "bookId": "xxbs"
+    },
+    {
+      "id": "xx2_quyuan",
+      "unit": "第三单元",
+      "title": "屈原列传",
+      "author": "司马迁",
+      "bookId": "xxbz"
+    },
+    {
+      "id": "xx2_suwu",
+      "unit": "第三单元",
+      "title": "苏武传",
+      "author": "班固",
+      "bookId": "xxbz"
+    },
+    {
+      "id": "xx2_guoqin",
+      "unit": "第三单元",
+      "title": "过秦论",
+      "author": "贾谊",
+      "bookId": "xxbz"
+    },
+    {
+      "id": "xx2_wudai",
+      "unit": "第三单元",
+      "title": "五代史伶官传序",
+      "author": "欧阳修",
+      "bookId": "xxbz"
+    },
+    {
+      "id": "xx3_chenqing",
+      "unit": "第三单元",
+      "title": "陈情表",
+      "author": "李密",
+      "bookId": "xxbx"
+    },
+    {
+      "id": "xx3_xiangjixuan",
+      "unit": "第三单元",
+      "title": "项脊轩志",
+      "author": "归有光",
+      "bookId": "xxbx"
+    },
+    {
+      "id": "xx3_lanting",
+      "unit": "第三单元",
+      "title": "兰亭集序",
+      "author": "王羲之",
+      "bookId": "xxbx"
+    },
+    {
+      "id": "xx3_guiqulaixi",
+      "unit": "第三单元",
+      "title": "归去来兮辞并序",
+      "author": "陶渊明",
+      "bookId": "xxbx"
+    },
+    {
+      "id": "xx3_zhongshu",
+      "unit": "第三单元",
+      "title": "种树郭橐驼传",
+      "author": "柳宗元",
+      "bookId": "xxbx"
+    },
+    {
+      "id": "xx3_shizhong",
+      "unit": "第三单元",
+      "title": "石钟山记",
+      "author": "苏轼",
+      "bookId": "xxbx"
+    }
+  ],
   "quizDefaults": {
     "durationSeconds": 120,
     "correctScore": 1,
@@ -65,238 +272,16 @@
       "wrongStreakPenalty": 2
     }
   },
-  "catalog": [
-    {
-      "id": "bx1_quxue",
-      "volume": "必修上册",
-      "unit": "第三单元",
-      "title": "劝学",
-      "author": "荀子"
-    },
-    {
-      "id": "bx1_shishuo",
-      "volume": "必修上册",
-      "unit": "第六单元",
-      "title": "师说",
-      "author": "韩愈"
-    },
-    {
-      "id": "bx1_chibifu",
-      "volume": "必修上册",
-      "unit": "第七单元",
-      "title": "赤壁赋",
-      "author": "苏轼"
-    },
-    {
-      "id": "bx1_dengtaishanji",
-      "volume": "必修上册",
-      "unit": "第七单元",
-      "title": "登泰山记",
-      "author": "姚鼐"
-    },
-    {
-      "id": "bx2_shizuo",
-      "volume": "必修下册",
-      "unit": "第一单元",
-      "title": "子路、曾皙、冉有、公西华侍坐",
-      "author": "《论语》"
-    },
-    {
-      "id": "bx2_qihuanjinwen",
-      "volume": "必修下册",
-      "unit": "第一单元",
-      "title": "齐桓晋文之事",
-      "author": "《孟子》"
-    },
-    {
-      "id": "bx2_paoding",
-      "volume": "必修下册",
-      "unit": "第二单元",
-      "title": "庖丁解牛",
-      "author": "《庄子》"
-    },
-    {
-      "id": "bx2_zhuwuzhiqin",
-      "volume": "必修下册",
-      "unit": "第三单元",
-      "title": "烛之武退秦师",
-      "author": "《左传》"
-    },
-    {
-      "id": "bx2_hongmenyan",
-      "volume": "必修下册",
-      "unit": "第三单元",
-      "title": "鸿门宴",
-      "author": "司马迁"
-    },
-    {
-      "id": "bx2_jian_taizong",
-      "volume": "必修下册",
-      "unit": "第四单元",
-      "title": "谏太宗十思疏",
-      "author": "魏征"
-    },
-    {
-      "id": "bx2_dasima",
-      "volume": "必修下册",
-      "unit": "第八单元",
-      "title": "答司马谏议书",
-      "author": "王安石"
-    },
-    {
-      "id": "bx2_afanggongfu",
-      "volume": "必修下册",
-      "unit": "第八单元",
-      "title": "阿房宫赋",
-      "author": "杜牧"
-    },
-    {
-      "id": "bx2_liuguolun",
-      "volume": "必修下册",
-      "unit": "第八单元",
-      "title": "六国论",
-      "author": "苏洵"
-    },
-    {
-      "id": "xx1_lunyu12",
-      "volume": "选择性必修上册",
-      "unit": "第二单元",
-      "title": "《论语》十二章",
-      "author": "《论语》"
-    },
-    {
-      "id": "xx1_daxue",
-      "volume": "选择性必修上册",
-      "unit": "第二单元",
-      "title": "大学之道",
-      "author": "《礼记》"
-    },
-    {
-      "id": "xx1_buren",
-      "volume": "选择性必修上册",
-      "unit": "第二单元",
-      "title": "人皆有不忍人之心",
-      "author": "《孟子》"
-    },
-    {
-      "id": "xx1_laozi",
-      "volume": "选择性必修上册",
-      "unit": "第二单元",
-      "title": "《老子》四章",
-      "author": "《老子》"
-    },
-    {
-      "id": "xx1_wushi",
-      "volume": "选择性必修上册",
-      "unit": "第二单元",
-      "title": "五石之瓠",
-      "author": "《庄子》"
-    },
-    {
-      "id": "xx1_jianai",
-      "volume": "选择性必修上册",
-      "unit": "第二单元",
-      "title": "兼爱",
-      "author": "《墨子》"
-    },
-    {
-      "id": "xx2_quyuan",
-      "volume": "选择性必修中册",
-      "unit": "第三单元",
-      "title": "屈原列传",
-      "author": "司马迁"
-    },
-    {
-      "id": "xx2_suwu",
-      "volume": "选择性必修中册",
-      "unit": "第三单元",
-      "title": "苏武传",
-      "author": "班固"
-    },
-    {
-      "id": "xx2_guoqin",
-      "volume": "选择性必修中册",
-      "unit": "第三单元",
-      "title": "过秦论",
-      "author": "贾谊"
-    },
-    {
-      "id": "xx2_wudai",
-      "volume": "选择性必修中册",
-      "unit": "第三单元",
-      "title": "五代史伶官传序",
-      "author": "欧阳修"
-    },
-    {
-      "id": "xx3_chenqing",
-      "volume": "选择性必修下册",
-      "unit": "第三单元",
-      "title": "陈情表",
-      "author": "李密"
-    },
-    {
-      "id": "xx3_xiangjixuan",
-      "volume": "选择性必修下册",
-      "unit": "第三单元",
-      "title": "项脊轩志",
-      "author": "归有光"
-    },
-    {
-      "id": "xx3_lanting",
-      "volume": "选择性必修下册",
-      "unit": "第三单元",
-      "title": "兰亭集序",
-      "author": "王羲之"
-    },
-    {
-      "id": "xx3_guiqulaixi",
-      "volume": "选择性必修下册",
-      "unit": "第三单元",
-      "title": "归去来兮辞并序",
-      "author": "陶渊明"
-    },
-    {
-      "id": "xx3_zhongshu",
-      "volume": "选择性必修下册",
-      "unit": "第三单元",
-      "title": "种树郭橐驼传",
-      "author": "柳宗元"
-    },
-    {
-      "id": "xx3_shizhong",
-      "volume": "选择性必修下册",
-      "unit": "第三单元",
-      "title": "石钟山记",
-      "author": "苏轼"
-    }
-  ],
-  "lexicon": [],
-  "source": {
-    "kind": "public_sample",
-    "questionCount": 87,
-    "articleCount": 29,
-    "selection": "每篇文章保留最多 3 道 reviewStatus=verified 的题目",
-    "contact": "yyyyyc001@gmail.com"
-  },
   "questions": [
     {
       "id": "bx-basic-001",
+      "number": 1,
       "type": "context_meaning",
       "articleId": "bx1_quxue",
-      "volume": "必修上册",
-      "unit": "第三单元",
-      "article": "劝学",
       "word": "利",
       "sentence": "金就砺则利。",
-      "targetStart": 4,
       "targetOccurrence": 1,
-      "explanation": "“利”是形容词作动词，指变得锋利。",
-      "reviewStatus": "verified",
-      "source": {
-        "kind": "textbook_word_bank_reviewed",
-        "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
-      "number": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -315,26 +300,22 @@
           "text": "使……获利"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-002",
-      "type": "context_meaning",
-      "articleId": "bx1_quxue",
-      "volume": "必修上册",
-      "unit": "第三单元",
-      "article": "劝学",
-      "word": "利",
-      "sentence": "非利足也，而致千里。",
-      "targetStart": 1,
-      "targetOccurrence": 1,
-      "explanation": "“利足”意为使脚走得快。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“利”是形容词作动词，指变得锋利。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-002",
       "number": 2,
+      "type": "context_meaning",
+      "articleId": "bx1_quxue",
+      "word": "利",
+      "sentence": "非利足也，而致千里。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -353,26 +334,22 @@
           "text": "利益、好处"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-003",
-      "type": "context_meaning",
-      "articleId": "bx1_quxue",
-      "volume": "必修上册",
-      "unit": "第三单元",
-      "article": "劝学",
-      "word": "假",
-      "sentence": "善假于物也。",
-      "targetStart": 1,
-      "targetOccurrence": 1,
-      "explanation": "“假”是借助、利用的意思。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“利足”意为使脚走得快。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-003",
       "number": 3,
+      "type": "context_meaning",
+      "articleId": "bx1_quxue",
+      "word": "假",
+      "sentence": "善假于物也。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -391,26 +368,22 @@
           "text": "虚假的"
         }
       ],
-      "answer": "A"
+      "answer": "A",
+      "explanation": "“假”是借助、利用的意思。",
+      "source": {
+        "kind": "textbook_word_bank_reviewed",
+        "title": "统编版课内文章与教材释义资料（经人工复核）"
+      }
     },
     {
       "id": "bx-basic-009",
+      "number": 4,
       "type": "context_meaning",
       "articleId": "bx1_shishuo",
-      "volume": "必修上册",
-      "unit": "第六单元",
-      "article": "师说",
       "word": "传",
       "sentence": "所以传道、受业、解惑也。",
-      "targetStart": 2,
       "targetOccurrence": 1,
-      "explanation": "这里是传授道理、教授学业。",
-      "reviewStatus": "verified",
-      "source": {
-        "kind": "textbook_word_bank_reviewed",
-        "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
-      "number": 4,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -429,26 +402,22 @@
           "text": "传达命令"
         }
       ],
-      "answer": "A"
+      "answer": "A",
+      "explanation": "这里是传授道理、教授学业。",
+      "source": {
+        "kind": "textbook_word_bank_reviewed",
+        "title": "统编版课内文章与教材释义资料（经人工复核）"
+      }
     },
     {
       "id": "bx-basic-010",
+      "number": 5,
       "type": "context_meaning",
       "articleId": "bx1_shishuo",
-      "volume": "必修上册",
-      "unit": "第六单元",
-      "article": "师说",
       "word": "传",
       "sentence": "师道之不传也久矣。",
-      "targetStart": 4,
       "targetOccurrence": 1,
-      "explanation": "这里指从师学习的风尚没有流传。",
-      "reviewStatus": "verified",
-      "source": {
-        "kind": "textbook_word_bank_reviewed",
-        "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
-      "number": 5,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -467,26 +436,22 @@
           "text": "传达命令"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-011",
-      "type": "context_meaning",
-      "articleId": "bx1_shishuo",
-      "volume": "必修上册",
-      "unit": "第六单元",
-      "article": "师说",
-      "word": "惑",
-      "sentence": "所以传道受业解惑也。",
-      "targetStart": 7,
-      "targetOccurrence": 1,
-      "explanation": "“惑”作名词，指疑难问题。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "这里指从师学习的风尚没有流传。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-011",
       "number": 6,
+      "type": "context_meaning",
+      "articleId": "bx1_shishuo",
+      "word": "惑",
+      "sentence": "所以传道受业解惑也。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -505,26 +470,22 @@
           "text": "疑问的语气"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-017",
-      "type": "context_meaning",
-      "articleId": "bx1_chibifu",
-      "volume": "必修上册",
-      "unit": "第七单元",
-      "article": "赤壁赋",
-      "word": "望",
-      "sentence": "七月既望。",
-      "targetStart": 3,
-      "targetOccurrence": 1,
-      "explanation": "“望”指农历每月十五日。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“惑”作名词，指疑难问题。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-017",
       "number": 7,
+      "type": "context_meaning",
+      "articleId": "bx1_chibifu",
+      "word": "望",
+      "sentence": "七月既望。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -543,26 +504,22 @@
           "text": "名望、声望"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-018",
-      "type": "context_meaning",
-      "articleId": "bx1_chibifu",
-      "volume": "必修上册",
-      "unit": "第七单元",
-      "article": "赤壁赋",
-      "word": "望",
-      "sentence": "望美人兮天一方。",
-      "targetStart": 0,
-      "targetOccurrence": 1,
-      "explanation": "这里是向远处眺望。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“望”指农历每月十五日。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-018",
       "number": 8,
+      "type": "context_meaning",
+      "articleId": "bx1_chibifu",
+      "word": "望",
+      "sentence": "望美人兮天一方。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -581,26 +538,22 @@
           "text": "名望、声望"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-019",
-      "type": "context_meaning",
-      "articleId": "bx1_chibifu",
-      "volume": "必修上册",
-      "unit": "第七单元",
-      "article": "赤壁赋",
-      "word": "歌",
-      "sentence": "扣舷而歌之。",
-      "targetStart": 3,
-      "targetOccurrence": 1,
-      "explanation": "“歌”作动词，指唱歌。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "这里是向远处眺望。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-019",
       "number": 9,
+      "type": "context_meaning",
+      "articleId": "bx1_chibifu",
+      "word": "歌",
+      "sentence": "扣舷而歌之。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -619,26 +572,22 @@
           "text": "诗歌体裁"
         }
       ],
-      "answer": "A"
+      "answer": "A",
+      "explanation": "“歌”作动词，指唱歌。",
+      "source": {
+        "kind": "textbook_word_bank_reviewed",
+        "title": "统编版课内文章与教材释义资料（经人工复核）"
+      }
     },
     {
       "id": "bx-basic-025",
+      "number": 10,
       "type": "context_meaning",
       "articleId": "bx1_dengtaishanji",
-      "volume": "必修上册",
-      "unit": "第七单元",
-      "article": "登泰山记",
       "word": "当",
       "sentence": "当其南北分者。",
-      "targetStart": 0,
       "targetOccurrence": 1,
-      "explanation": "“当”是介词，在、在……的地方。",
-      "reviewStatus": "verified",
-      "source": {
-        "kind": "textbook_word_bank_reviewed",
-        "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
-      "number": 10,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -657,26 +606,22 @@
           "text": "应当"
         }
       ],
-      "answer": "A"
+      "answer": "A",
+      "explanation": "“当”是介词，在、在……的地方。",
+      "source": {
+        "kind": "textbook_word_bank_reviewed",
+        "title": "统编版课内文章与教材释义资料（经人工复核）"
+      }
     },
     {
       "id": "bx-basic-026",
+      "number": 11,
       "type": "context_meaning",
       "articleId": "bx1_dengtaishanji",
-      "volume": "必修上册",
-      "unit": "第七单元",
-      "article": "登泰山记",
       "word": "当",
       "sentence": "崖限当道者。",
-      "targetStart": 2,
       "targetOccurrence": 1,
-      "explanation": "“当道”是挡住道路。",
-      "reviewStatus": "verified",
-      "source": {
-        "kind": "textbook_word_bank_reviewed",
-        "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
-      "number": 11,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -695,26 +640,22 @@
           "text": "应当"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-027",
-      "type": "context_meaning",
-      "articleId": "bx1_dengtaishanji",
-      "volume": "必修上册",
-      "unit": "第七单元",
-      "article": "登泰山记",
-      "word": "限",
-      "sentence": "越长城之限。",
-      "targetStart": 4,
-      "targetOccurrence": 1,
-      "explanation": "“限”指界限。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“当道”是挡住道路。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-027",
       "number": 12,
+      "type": "context_meaning",
+      "articleId": "bx1_dengtaishanji",
+      "word": "限",
+      "sentence": "越长城之限。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -733,26 +674,22 @@
           "text": "险要的地方"
         }
       ],
-      "answer": "A"
+      "answer": "A",
+      "explanation": "“限”指界限。",
+      "source": {
+        "kind": "textbook_word_bank_reviewed",
+        "title": "统编版课内文章与教材释义资料（经人工复核）"
+      }
     },
     {
       "id": "bx-basic-031",
+      "number": 13,
       "type": "context_meaning",
       "articleId": "bx2_shizuo",
-      "volume": "必修下册",
-      "unit": "第一单元",
-      "article": "子路、曾皙、冉有、公西华侍坐",
       "word": "方",
       "sentence": "方六七十，如五六十。",
-      "targetStart": 0,
       "targetOccurrence": 1,
-      "explanation": "“方六七十”指纵横六七十里。",
-      "reviewStatus": "verified",
-      "source": {
-        "kind": "textbook_word_bank_reviewed",
-        "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
-      "number": 13,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -771,26 +708,22 @@
           "text": "方才"
         }
       ],
-      "answer": "A"
+      "answer": "A",
+      "explanation": "“方六七十”指纵横六七十里。",
+      "source": {
+        "kind": "textbook_word_bank_reviewed",
+        "title": "统编版课内文章与教材释义资料（经人工复核）"
+      }
     },
     {
       "id": "bx-basic-032",
+      "number": 14,
       "type": "context_meaning",
       "articleId": "bx2_shizuo",
-      "volume": "必修下册",
-      "unit": "第一单元",
-      "article": "子路、曾皙、冉有、公西华侍坐",
       "word": "方",
       "sentence": "且知方也。",
-      "targetStart": 2,
       "targetOccurrence": 1,
-      "explanation": "“方”指道义、准则。",
-      "reviewStatus": "verified",
-      "source": {
-        "kind": "textbook_word_bank_reviewed",
-        "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
-      "number": 14,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -809,26 +742,22 @@
           "text": "方才"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-033",
-      "type": "context_meaning",
-      "articleId": "bx2_shizuo",
-      "volume": "必修下册",
-      "unit": "第一单元",
-      "article": "子路、曾皙、冉有、公西华侍坐",
-      "word": "尔",
-      "sentence": "以吾一日长乎尔。",
-      "targetStart": 6,
-      "targetOccurrence": 1,
-      "explanation": "“尔”是第二人称代词，你们。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“方”指道义、准则。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-033",
       "number": 15,
+      "type": "context_meaning",
+      "articleId": "bx2_shizuo",
+      "word": "尔",
+      "sentence": "以吾一日长乎尔。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -847,26 +776,22 @@
           "text": "你的"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-036",
-      "type": "context_meaning",
-      "articleId": "bx2_qihuanjinwen",
-      "volume": "必修下册",
-      "unit": "第一单元",
-      "article": "齐桓晋文之事",
-      "word": "道",
-      "sentence": "仲尼之徒无道桓文之事者。",
-      "targetStart": 5,
-      "targetOccurrence": 1,
-      "explanation": "“道”作动词，指谈论。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“尔”是第二人称代词，你们。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-036",
       "number": 16,
+      "type": "context_meaning",
+      "articleId": "bx2_qihuanjinwen",
+      "word": "道",
+      "sentence": "仲尼之徒无道桓文之事者。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -885,26 +810,22 @@
           "text": "风尚"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-037",
-      "type": "context_meaning",
-      "articleId": "bx2_qihuanjinwen",
-      "volume": "必修下册",
-      "unit": "第一单元",
-      "article": "齐桓晋文之事",
-      "word": "若",
-      "sentence": "若无罪而就死地。",
-      "targetStart": 0,
-      "targetOccurrence": 1,
-      "explanation": "“若”表示假设，如果。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“道”作动词，指谈论。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-037",
       "number": 17,
+      "type": "context_meaning",
+      "articleId": "bx2_qihuanjinwen",
+      "word": "若",
+      "sentence": "若无罪而就死地。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -923,26 +844,22 @@
           "text": "比得上"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-038",
-      "type": "context_meaning",
-      "articleId": "bx2_qihuanjinwen",
-      "volume": "必修下册",
-      "unit": "第一单元",
-      "article": "齐桓晋文之事",
-      "word": "明",
-      "sentence": "明足以察秋毫之末。",
-      "targetStart": 0,
-      "targetOccurrence": 1,
-      "explanation": "“明”指视力。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“若”表示假设，如果。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-038",
       "number": 18,
+      "type": "context_meaning",
+      "articleId": "bx2_qihuanjinwen",
+      "word": "明",
+      "sentence": "明足以察秋毫之末。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -961,26 +878,22 @@
           "text": "英明、明智"
         }
       ],
-      "answer": "A"
+      "answer": "A",
+      "explanation": "“明”指视力。",
+      "source": {
+        "kind": "textbook_word_bank_reviewed",
+        "title": "统编版课内文章与教材释义资料（经人工复核）"
+      }
     },
     {
       "id": "bx-basic-041",
+      "number": 19,
       "type": "context_meaning",
       "articleId": "bx2_paoding",
-      "volume": "必修下册",
-      "unit": "第二单元",
-      "article": "庖丁解牛",
       "word": "族",
       "sentence": "族庖月更刀。",
-      "targetStart": 0,
       "targetOccurrence": 1,
-      "explanation": "“族庖”指一般的厨工。",
-      "reviewStatus": "verified",
-      "source": {
-        "kind": "textbook_word_bank_reviewed",
-        "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
-      "number": 19,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -999,26 +912,22 @@
           "text": "灭族"
         }
       ],
-      "answer": "A"
+      "answer": "A",
+      "explanation": "“族庖”指一般的厨工。",
+      "source": {
+        "kind": "textbook_word_bank_reviewed",
+        "title": "统编版课内文章与教材释义资料（经人工复核）"
+      }
     },
     {
       "id": "bx-basic-042",
+      "number": 20,
       "type": "context_meaning",
       "articleId": "bx2_paoding",
-      "volume": "必修下册",
-      "unit": "第二单元",
-      "article": "庖丁解牛",
       "word": "族",
       "sentence": "每至于族。",
-      "targetStart": 3,
       "targetOccurrence": 1,
-      "explanation": "“族”指筋骨交错聚结的地方。",
-      "reviewStatus": "verified",
-      "source": {
-        "kind": "textbook_word_bank_reviewed",
-        "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
-      "number": 20,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -1037,26 +946,22 @@
           "text": "灭族"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-043",
-      "type": "context_meaning",
-      "articleId": "bx2_paoding",
-      "volume": "必修下册",
-      "unit": "第二单元",
-      "article": "庖丁解牛",
-      "word": "道",
-      "sentence": "臣之所好者道也。",
-      "targetStart": 5,
-      "targetOccurrence": 1,
-      "explanation": "这里的“道”指事物的规律。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“族”指筋骨交错聚结的地方。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-043",
       "number": 21,
+      "type": "context_meaning",
+      "articleId": "bx2_paoding",
+      "word": "道",
+      "sentence": "臣之所好者道也。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -1075,26 +980,22 @@
           "text": "风尚"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-046",
-      "type": "context_meaning",
-      "articleId": "bx2_zhuwuzhiqin",
-      "volume": "必修下册",
-      "unit": "第三单元",
-      "article": "烛之武退秦师",
-      "word": "贰",
-      "sentence": "以其无礼于晋，且贰于楚也。",
-      "targetStart": 8,
-      "targetOccurrence": 1,
-      "explanation": "“贰”指对晋国有二心，从属二主。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "这里的“道”指事物的规律。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-046",
       "number": 22,
+      "type": "context_meaning",
+      "articleId": "bx2_zhuwuzhiqin",
+      "word": "贰",
+      "sentence": "以其无礼于晋，且贰于楚也。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -1113,26 +1014,22 @@
           "text": "疑惑、怀疑"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-047",
-      "type": "context_meaning",
-      "articleId": "bx2_zhuwuzhiqin",
-      "volume": "必修下册",
-      "unit": "第三单元",
-      "article": "烛之武退秦师",
-      "word": "鄙",
-      "sentence": "越国以鄙远。",
-      "targetStart": 3,
-      "targetOccurrence": 1,
-      "explanation": "“鄙”是名词的意动用法，把远方的土地当作边邑。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“贰”指对晋国有二心，从属二主。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-047",
       "number": 23,
+      "type": "context_meaning",
+      "articleId": "bx2_zhuwuzhiqin",
+      "word": "鄙",
+      "sentence": "越国以鄙远。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -1151,26 +1048,22 @@
           "text": "轻视、看不起"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-048",
-      "type": "context_meaning",
-      "articleId": "bx2_zhuwuzhiqin",
-      "volume": "必修下册",
-      "unit": "第三单元",
-      "article": "烛之武退秦师",
-      "word": "阙",
-      "sentence": "若不阙秦，将焉取之。",
-      "targetStart": 2,
-      "targetOccurrence": 1,
-      "explanation": "“阙”是使动用法，使秦国的土地削减。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“鄙”是名词的意动用法，把远方的土地当作边邑。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-048",
       "number": 24,
+      "type": "context_meaning",
+      "articleId": "bx2_zhuwuzhiqin",
+      "word": "阙",
+      "sentence": "若不阙秦，将焉取之。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -1189,26 +1082,22 @@
           "text": "挖掘、开凿"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-052",
-      "type": "context_meaning",
-      "articleId": "bx2_hongmenyan",
-      "volume": "必修下册",
-      "unit": "第三单元",
-      "article": "鸿门宴",
-      "word": "如",
-      "sentence": "杀人如不能举，刑人如恐不胜。",
-      "targetStart": 2,
-      "targetOccurrence": 1,
-      "explanation": "两个“如”都是好像、如同。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“阙”是使动用法，使秦国的土地削减。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-052",
       "number": 25,
+      "type": "context_meaning",
+      "articleId": "bx2_hongmenyan",
+      "word": "如",
+      "sentence": "杀人如不能举，刑人如恐不胜。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -1227,26 +1116,22 @@
           "text": "及、赶得上"
         }
       ],
-      "answer": "A"
+      "answer": "A",
+      "explanation": "两个“如”都是好像、如同。",
+      "source": {
+        "kind": "textbook_word_bank_reviewed",
+        "title": "统编版课内文章与教材释义资料（经人工复核）"
+      }
     },
     {
       "id": "bx-basic-053",
+      "number": 26,
       "type": "context_meaning",
       "articleId": "bx2_hongmenyan",
-      "volume": "必修下册",
-      "unit": "第三单元",
-      "article": "鸿门宴",
       "word": "如",
       "sentence": "沛公起如厕。",
-      "targetStart": 3,
       "targetOccurrence": 1,
-      "explanation": "“如厕”是到厕所去。",
-      "reviewStatus": "verified",
-      "source": {
-        "kind": "textbook_word_bank_reviewed",
-        "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
-      "number": 26,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -1265,26 +1150,22 @@
           "text": "及、赶得上"
         }
       ],
-      "answer": "A"
+      "answer": "A",
+      "explanation": "“如厕”是到厕所去。",
+      "source": {
+        "kind": "textbook_word_bank_reviewed",
+        "title": "统编版课内文章与教材释义资料（经人工复核）"
+      }
     },
     {
       "id": "bx-basic-054",
+      "number": 27,
       "type": "context_meaning",
       "articleId": "bx2_hongmenyan",
-      "volume": "必修下册",
-      "unit": "第三单元",
-      "article": "鸿门宴",
       "word": "如",
       "sentence": "固不如也。",
-      "targetStart": 2,
       "targetOccurrence": 1,
-      "explanation": "“不如”是比不上。",
-      "reviewStatus": "verified",
-      "source": {
-        "kind": "textbook_word_bank_reviewed",
-        "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
-      "number": 27,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -1303,26 +1184,22 @@
           "text": "及、赶得上"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-067",
-      "type": "context_meaning",
-      "articleId": "bx2_jian_taizong",
-      "volume": "必修下册",
-      "unit": "第四单元",
-      "article": "谏太宗十思疏",
-      "word": "固",
-      "sentence": "必固其根本。",
-      "targetStart": 1,
-      "targetOccurrence": 1,
-      "explanation": "“固”是使动用法，使根本牢固。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“不如”是比不上。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-067",
       "number": 28,
+      "type": "context_meaning",
+      "articleId": "bx2_jian_taizong",
+      "word": "固",
+      "sentence": "必固其根本。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -1341,26 +1218,22 @@
           "text": "坚持、坚决"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-068",
-      "type": "context_meaning",
-      "articleId": "bx2_jian_taizong",
-      "volume": "必修下册",
-      "unit": "第四单元",
-      "article": "谏太宗十思疏",
-      "word": "安",
-      "sentence": "思国之安者，必积其德义。",
-      "targetStart": 3,
-      "targetOccurrence": 1,
-      "explanation": "“安”指国家安定。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“固”是使动用法，使根本牢固。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-068",
       "number": 29,
+      "type": "context_meaning",
+      "articleId": "bx2_jian_taizong",
+      "word": "安",
+      "sentence": "思国之安者，必积其德义。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -1379,26 +1252,22 @@
           "text": "使……安宁"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-069",
-      "type": "context_meaning",
-      "articleId": "bx2_jian_taizong",
-      "volume": "必修下册",
-      "unit": "第四单元",
-      "article": "谏太宗十思疏",
-      "word": "诚",
-      "sentence": "必竭诚以待下。",
-      "targetStart": 2,
-      "targetOccurrence": 1,
-      "explanation": "“诚”指诚心、真心。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“安”指国家安定。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-069",
       "number": 30,
+      "type": "context_meaning",
+      "articleId": "bx2_jian_taizong",
+      "word": "诚",
+      "sentence": "必竭诚以待下。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -1417,26 +1286,22 @@
           "text": "诚实、信用"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-077",
-      "type": "context_meaning",
-      "articleId": "bx2_dasima",
-      "volume": "必修下册",
-      "unit": "第八单元",
-      "article": "答司马谏议书",
-      "word": "受",
-      "sentence": "受命于人主。",
-      "targetStart": 0,
-      "targetOccurrence": 1,
-      "explanation": "“受命”是接受皇帝的命令。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“诚”指诚心、真心。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-077",
       "number": 31,
+      "type": "context_meaning",
+      "articleId": "bx2_dasima",
+      "word": "受",
+      "sentence": "受命于人主。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -1455,26 +1320,22 @@
           "text": "受到教育"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-078",
-      "type": "context_meaning",
-      "articleId": "bx2_dasima",
-      "volume": "必修下册",
-      "unit": "第八单元",
-      "article": "答司马谏议书",
-      "word": "修",
-      "sentence": "议法度而修之于朝廷。",
-      "targetStart": 4,
-      "targetOccurrence": 1,
-      "explanation": "“修”是修改。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“受命”是接受皇帝的命令。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-078",
       "number": 32,
+      "type": "context_meaning",
+      "articleId": "bx2_dasima",
+      "word": "修",
+      "sentence": "议法度而修之于朝廷。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -1493,26 +1354,22 @@
           "text": "长、高"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-079",
-      "type": "context_meaning",
-      "articleId": "bx2_dasima",
-      "volume": "必修下册",
-      "unit": "第八单元",
-      "article": "答司马谏议书",
-      "word": "举",
-      "sentence": "举先王之政。",
-      "targetStart": 0,
-      "targetOccurrence": 1,
-      "explanation": "“举”是施行先王的政策。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“修”是修改。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-079",
       "number": 33,
+      "type": "context_meaning",
+      "articleId": "bx2_dasima",
+      "word": "举",
+      "sentence": "举先王之政。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -1531,26 +1388,22 @@
           "text": "全、尽"
         }
       ],
-      "answer": "A"
+      "answer": "A",
+      "explanation": "“举”是施行先王的政策。",
+      "source": {
+        "kind": "textbook_word_bank_reviewed",
+        "title": "统编版课内文章与教材释义资料（经人工复核）"
+      }
     },
     {
       "id": "bx-basic-083",
+      "number": 34,
       "type": "context_meaning",
       "articleId": "bx2_afanggongfu",
-      "volume": "必修下册",
-      "unit": "第八单元",
-      "article": "阿房宫赋",
       "word": "爱",
       "sentence": "秦爱纷奢，人亦念其家。",
-      "targetStart": 1,
       "targetOccurrence": 1,
-      "explanation": "“爱”是喜爱、喜欢。",
-      "reviewStatus": "verified",
-      "source": {
-        "kind": "textbook_word_bank_reviewed",
-        "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
-      "number": 34,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -1569,26 +1422,22 @@
           "text": "爱慕、仰慕"
         }
       ],
-      "answer": "A"
+      "answer": "A",
+      "explanation": "“爱”是喜爱、喜欢。",
+      "source": {
+        "kind": "textbook_word_bank_reviewed",
+        "title": "统编版课内文章与教材释义资料（经人工复核）"
+      }
     },
     {
       "id": "bx-basic-084",
+      "number": 35,
       "type": "context_meaning",
       "articleId": "bx2_afanggongfu",
-      "volume": "必修下册",
-      "unit": "第八单元",
-      "article": "阿房宫赋",
       "word": "爱",
       "sentence": "使秦复爱六国之人。",
-      "targetStart": 3,
       "targetOccurrence": 1,
-      "explanation": "“爱”是爱护。",
-      "reviewStatus": "verified",
-      "source": {
-        "kind": "textbook_word_bank_reviewed",
-        "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
-      "number": 35,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -1607,26 +1456,22 @@
           "text": "爱慕、仰慕"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-085",
-      "type": "context_meaning",
-      "articleId": "bx2_afanggongfu",
-      "volume": "必修下册",
-      "unit": "第八单元",
-      "article": "阿房宫赋",
-      "word": "取",
-      "sentence": "奈何取之尽锱铢，用之如泥沙。",
-      "targetStart": 2,
-      "targetOccurrence": 1,
-      "explanation": "“取”是夺取、掠夺。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“爱”是爱护。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-085",
       "number": 36,
+      "type": "context_meaning",
+      "articleId": "bx2_afanggongfu",
+      "word": "取",
+      "sentence": "奈何取之尽锱铢，用之如泥沙。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -1645,26 +1490,22 @@
           "text": "取得、获得"
         }
       ],
-      "answer": "A"
+      "answer": "A",
+      "explanation": "“取”是夺取、掠夺。",
+      "source": {
+        "kind": "textbook_word_bank_reviewed",
+        "title": "统编版课内文章与教材释义资料（经人工复核）"
+      }
     },
     {
       "id": "bx-basic-091",
+      "number": 37,
       "type": "context_meaning",
       "articleId": "bx2_liuguolun",
-      "volume": "必修下册",
-      "unit": "第八单元",
-      "article": "六国论",
       "word": "兵",
       "sentence": "非兵不利。",
-      "targetStart": 1,
       "targetOccurrence": 1,
-      "explanation": "“兵”指兵器。",
-      "reviewStatus": "verified",
-      "source": {
-        "kind": "textbook_word_bank_reviewed",
-        "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
-      "number": 37,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -1683,26 +1524,22 @@
           "text": "士兵"
         }
       ],
-      "answer": "A"
+      "answer": "A",
+      "explanation": "“兵”指兵器。",
+      "source": {
+        "kind": "textbook_word_bank_reviewed",
+        "title": "统编版课内文章与教材释义资料（经人工复核）"
+      }
     },
     {
       "id": "bx-basic-092",
+      "number": 38,
       "type": "context_meaning",
       "articleId": "bx2_liuguolun",
-      "volume": "必修下册",
-      "unit": "第八单元",
-      "article": "六国论",
       "word": "兵",
       "sentence": "而秦兵又至矣。",
-      "targetStart": 2,
       "targetOccurrence": 1,
-      "explanation": "“兵”指军队。",
-      "reviewStatus": "verified",
-      "source": {
-        "kind": "textbook_word_bank_reviewed",
-        "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
-      "number": 38,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -1721,26 +1558,22 @@
           "text": "士兵"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-093",
-      "type": "context_meaning",
-      "articleId": "bx2_liuguolun",
-      "volume": "必修下册",
-      "unit": "第八单元",
-      "article": "六国论",
-      "word": "事",
-      "sentence": "以地事秦。",
-      "targetStart": 2,
-      "targetOccurrence": 1,
-      "explanation": "“事”作动词，指侍奉。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“兵”指军队。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-093",
       "number": 39,
+      "type": "context_meaning",
+      "articleId": "bx2_liuguolun",
+      "word": "事",
+      "sentence": "以地事秦。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -1759,26 +1592,22 @@
           "text": "事件、事故"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-101",
-      "type": "context_meaning",
-      "articleId": "xx1_lunyu12",
-      "volume": "选择性必修上册",
-      "unit": "第二单元",
-      "article": "《论语》十二章",
-      "word": "敏",
-      "sentence": "敏于事而慎于言，就有道而正焉，可谓好学也已。",
-      "targetStart": 0,
-      "targetOccurrence": 1,
-      "explanation": "“敏”是勤勉，指做事勤勉。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“事”作动词，指侍奉。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-101",
       "number": 40,
+      "type": "context_meaning",
+      "articleId": "xx1_lunyu12",
+      "word": "敏",
+      "sentence": "敏于事而慎于言，就有道而正焉，可谓好学也已。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -1797,26 +1626,22 @@
           "text": "善于应变"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-102",
-      "type": "context_meaning",
-      "articleId": "xx1_lunyu12",
-      "volume": "选择性必修上册",
-      "unit": "第二单元",
-      "article": "《论语》十二章",
-      "word": "就",
-      "sentence": "敏于事而慎于言，就有道而正焉，可谓好学也已。",
-      "targetStart": 8,
-      "targetOccurrence": 1,
-      "explanation": "“就有道”是接近有道德学问的人。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“敏”是勤勉，指做事勤勉。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-102",
       "number": 41,
+      "type": "context_meaning",
+      "articleId": "xx1_lunyu12",
+      "word": "就",
+      "sentence": "敏于事而慎于言，就有道而正焉，可谓好学也已。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -1835,26 +1660,22 @@
           "text": "趋向、走向"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-103",
-      "type": "context_meaning",
-      "articleId": "xx1_lunyu12",
-      "volume": "选择性必修上册",
-      "unit": "第二单元",
-      "article": "《论语》十二章",
-      "word": "喻",
-      "sentence": "君子喻于义，小人喻于利。",
-      "targetStart": 2,
-      "targetOccurrence": 1,
-      "explanation": "“喻于义”是明白义理。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“就有道”是接近有道德学问的人。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-103",
       "number": 42,
+      "type": "context_meaning",
+      "articleId": "xx1_lunyu12",
+      "word": "喻",
+      "sentence": "君子喻于义，小人喻于利。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -1873,26 +1694,22 @@
           "text": "喜欢、爱好"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-111",
-      "type": "context_meaning",
-      "articleId": "xx1_daxue",
-      "volume": "选择性必修上册",
-      "unit": "第二单元",
-      "article": "大学之道",
-      "word": "道",
-      "sentence": "大学之道，在明明德，在亲民，在止于至善。",
-      "targetStart": 3,
-      "targetOccurrence": 1,
-      "explanation": "“大学之道”指大学的宗旨、道理。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“喻于义”是明白义理。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-111",
       "number": 43,
+      "type": "context_meaning",
+      "articleId": "xx1_daxue",
+      "word": "道",
+      "sentence": "大学之道，在明明德，在亲民，在止于至善。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -1911,26 +1728,22 @@
           "text": "学说、思想流派"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-112",
-      "type": "context_meaning",
-      "articleId": "xx1_daxue",
-      "volume": "选择性必修上册",
-      "unit": "第二单元",
-      "article": "大学之道",
-      "word": "明",
-      "sentence": "大学之道，在明明德，在亲民，在止于至善。",
-      "targetStart": 6,
-      "targetOccurrence": 1,
-      "explanation": "第一个“明”是使动意义，指彰明、发扬。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“大学之道”指大学的宗旨、道理。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-112",
       "number": 44,
+      "type": "context_meaning",
+      "articleId": "xx1_daxue",
+      "word": "明",
+      "sentence": "大学之道，在明明德，在亲民，在止于至善。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -1949,26 +1762,22 @@
           "text": "英明、明智"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-113",
-      "type": "context_meaning",
-      "articleId": "xx1_daxue",
-      "volume": "选择性必修上册",
-      "unit": "第二单元",
-      "article": "大学之道",
-      "word": "亲民",
-      "sentence": "大学之道，在明明德，在亲民，在止于至善。",
-      "targetStart": 11,
-      "targetOccurrence": 1,
-      "explanation": "“亲民”指亲近爱抚民众。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "第一个“明”是使动意义，指彰明、发扬。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-113",
       "number": 45,
+      "type": "context_meaning",
+      "articleId": "xx1_daxue",
+      "word": "亲民",
+      "sentence": "大学之道，在明明德，在亲民，在止于至善。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -1987,26 +1796,22 @@
           "text": "与百姓结为亲家"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-121",
-      "type": "context_meaning",
-      "articleId": "xx1_buren",
-      "volume": "选择性必修上册",
-      "unit": "第二单元",
-      "article": "人皆有不忍人之心",
-      "word": "乍",
-      "sentence": "今人乍见孺子将入于井，皆有怵惕恻隐之心。",
-      "targetStart": 2,
-      "targetOccurrence": 1,
-      "explanation": "“乍见”是突然看见。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“亲民”指亲近爱抚民众。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-121",
       "number": 46,
+      "type": "context_meaning",
+      "articleId": "xx1_buren",
+      "word": "乍",
+      "sentence": "今人乍见孺子将入于井，皆有怵惕恻隐之心。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -2025,26 +1830,22 @@
           "text": "一向、一直"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-122",
-      "type": "context_meaning",
-      "articleId": "xx1_buren",
-      "volume": "选择性必修上册",
-      "unit": "第二单元",
-      "article": "人皆有不忍人之心",
-      "word": "怵惕",
-      "sentence": "今人乍见孺子将入于井，皆有怵惕恻隐之心。",
-      "targetStart": 13,
-      "targetOccurrence": 1,
-      "explanation": "“怵惕”形容因惊恐而产生的戒惧之心。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“乍见”是突然看见。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-122",
       "number": 47,
+      "type": "context_meaning",
+      "articleId": "xx1_buren",
+      "word": "怵惕",
+      "sentence": "今人乍见孺子将入于井，皆有怵惕恻隐之心。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -2063,26 +1864,22 @@
           "text": "忧虑、思考"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-123",
-      "type": "context_meaning",
-      "articleId": "xx1_buren",
-      "volume": "选择性必修上册",
-      "unit": "第二单元",
-      "article": "人皆有不忍人之心",
-      "word": "恻隐",
-      "sentence": "今人乍见孺子将入于井，皆有怵惕恻隐之心。",
-      "targetStart": 15,
-      "targetOccurrence": 1,
-      "explanation": "“恻隐”是对别人的不幸表示怜悯。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“怵惕”形容因惊恐而产生的戒惧之心。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-123",
       "number": 48,
+      "type": "context_meaning",
+      "articleId": "xx1_buren",
+      "word": "恻隐",
+      "sentence": "今人乍见孺子将入于井，皆有怵惕恻隐之心。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -2101,26 +1898,22 @@
           "text": "同情而逃避"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-131",
-      "type": "context_meaning",
-      "articleId": "xx1_laozi",
-      "volume": "选择性必修上册",
-      "unit": "第二单元",
-      "article": "《老子》四章",
-      "word": "辐",
-      "sentence": "三十辐共一毂，当其无，有车之用。",
-      "targetStart": 2,
-      "targetOccurrence": 1,
-      "explanation": "“辐”是车轮中连接车轴和轮圈的木条。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“恻隐”是对别人的不幸表示怜悯。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-131",
       "number": 49,
+      "type": "context_meaning",
+      "articleId": "xx1_laozi",
+      "word": "辐",
+      "sentence": "三十辐共一毂，当其无，有车之用。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -2139,26 +1932,22 @@
           "text": "车厢"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-132",
-      "type": "context_meaning",
-      "articleId": "xx1_laozi",
-      "volume": "选择性必修上册",
-      "unit": "第二单元",
-      "article": "《老子》四章",
-      "word": "毂",
-      "sentence": "三十辐共一毂，当其无，有车之用。",
-      "targetStart": 5,
-      "targetOccurrence": 1,
-      "explanation": "“毂”是车轮的中心部位，周围连接辐条。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“辐”是车轮中连接车轴和轮圈的木条。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-132",
       "number": 50,
+      "type": "context_meaning",
+      "articleId": "xx1_laozi",
+      "word": "毂",
+      "sentence": "三十辐共一毂，当其无，有车之用。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -2177,26 +1966,22 @@
           "text": "车上的伞盖"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-133",
-      "type": "context_meaning",
-      "articleId": "xx1_laozi",
-      "volume": "选择性必修上册",
-      "unit": "第二单元",
-      "article": "《老子》四章",
-      "word": "当",
-      "sentence": "三十辐共一毂，当其无，有车之用。",
-      "targetStart": 7,
-      "targetOccurrence": 1,
-      "explanation": "“当其无”指对着车毂中空的地方。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“毂”是车轮的中心部位，周围连接辐条。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-133",
       "number": 51,
+      "type": "context_meaning",
+      "articleId": "xx1_laozi",
+      "word": "当",
+      "sentence": "三十辐共一毂，当其无，有车之用。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -2215,26 +2000,22 @@
           "text": "担当、承担"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-141",
-      "type": "context_meaning",
-      "articleId": "xx1_wushi",
-      "volume": "选择性必修上册",
-      "unit": "第二单元",
-      "article": "五石之瓠",
-      "word": "贻",
-      "sentence": "魏王贻我大瓠之种，我树之成而实五石。",
-      "targetStart": 2,
-      "targetOccurrence": 1,
-      "explanation": "“贻”是赠送。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“当其无”指对着车毂中空的地方。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-141",
       "number": 52,
+      "type": "context_meaning",
+      "articleId": "xx1_wushi",
+      "word": "贻",
+      "sentence": "魏王贻我大瓠之种，我树之成而实五石。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -2253,26 +2034,22 @@
           "text": "继承、接受"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-142",
-      "type": "context_meaning",
-      "articleId": "xx1_wushi",
-      "volume": "选择性必修上册",
-      "unit": "第二单元",
-      "article": "五石之瓠",
-      "word": "树",
-      "sentence": "魏王贻我大瓠之种，我树之成而实五石。",
-      "targetStart": 10,
-      "targetOccurrence": 1,
-      "explanation": "“树”作动词，是种植。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“贻”是赠送。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-142",
       "number": 53,
+      "type": "context_meaning",
+      "articleId": "xx1_wushi",
+      "word": "树",
+      "sentence": "魏王贻我大瓠之种，我树之成而实五石。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -2291,26 +2068,22 @@
           "text": "培育人才"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-143",
-      "type": "context_meaning",
-      "articleId": "xx1_wushi",
-      "volume": "选择性必修上册",
-      "unit": "第二单元",
-      "article": "五石之瓠",
-      "word": "实",
-      "sentence": "魏王贻我大瓠之种，我树之成而实五石。",
-      "targetStart": 14,
-      "targetOccurrence": 1,
-      "explanation": "“实五石”指葫芦有容纳五石的容量。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“树”作动词，是种植。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-143",
       "number": 54,
+      "type": "context_meaning",
+      "articleId": "xx1_wushi",
+      "word": "实",
+      "sentence": "魏王贻我大瓠之种，我树之成而实五石。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -2329,26 +2102,22 @@
           "text": "诚实、真实"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-151",
-      "type": "context_meaning",
-      "articleId": "xx1_jianai",
-      "volume": "选择性必修上册",
-      "unit": "第二单元",
-      "article": "兼爱",
-      "word": "焉",
-      "sentence": "不知乱之所自起，焉能治之。",
-      "targetStart": 8,
-      "targetOccurrence": 1,
-      "explanation": "“焉能治之”意为于是才能治理它。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“实五石”指葫芦有容纳五石的容量。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-151",
       "number": 55,
+      "type": "context_meaning",
+      "articleId": "xx1_jianai",
+      "word": "焉",
+      "sentence": "不知乱之所自起，焉能治之。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -2367,26 +2136,22 @@
           "text": "在那里、到那里"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-152",
-      "type": "context_meaning",
-      "articleId": "xx1_jianai",
-      "volume": "选择性必修上册",
-      "unit": "第二单元",
-      "article": "兼爱",
-      "word": "攻",
-      "sentence": "譬之如医之攻人之疾者然，必知疾之所自起，焉能攻之。",
-      "targetStart": 5,
-      "targetOccurrence": 1,
-      "explanation": "这里把医生治病比作治理天下，“攻”是治疗。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“焉能治之”意为于是才能治理它。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-152",
       "number": 56,
+      "type": "context_meaning",
+      "articleId": "xx1_jianai",
+      "word": "攻",
+      "sentence": "譬之如医之攻人之疾者然，必知疾之所自起，焉能攻之。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -2405,26 +2170,22 @@
           "text": "攻克、战胜"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-153",
-      "type": "context_meaning",
-      "articleId": "xx1_jianai",
-      "volume": "选择性必修上册",
-      "unit": "第二单元",
-      "article": "兼爱",
-      "word": "当",
-      "sentence": "故当察乱何自起？起不相爱。",
-      "targetStart": 1,
-      "targetOccurrence": 1,
-      "explanation": "“当”同“尝”，是尝试、试着的意思。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "这里把医生治病比作治理天下，“攻”是治疗。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-153",
       "number": 57,
+      "type": "context_meaning",
+      "articleId": "xx1_jianai",
+      "word": "当",
+      "sentence": "故当察乱何自起？起不相爱。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -2443,26 +2204,22 @@
           "text": "适合、相当"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-161",
-      "type": "context_meaning",
-      "articleId": "xx2_quyuan",
-      "volume": "选择性必修中册",
-      "unit": "第三单元",
-      "article": "屈原列传",
-      "word": "疾",
-      "sentence": "屈平疾王听之不聪也。",
-      "targetStart": 2,
-      "targetOccurrence": 1,
-      "explanation": "“疾”是痛心。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“当”同“尝”，是尝试、试着的意思。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-161",
       "number": 58,
+      "type": "context_meaning",
+      "articleId": "xx2_quyuan",
+      "word": "疾",
+      "sentence": "屈平疾王听之不聪也。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -2481,26 +2238,22 @@
           "text": "快速、急切"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-162",
-      "type": "context_meaning",
-      "articleId": "xx2_quyuan",
-      "volume": "选择性必修中册",
-      "unit": "第三单元",
-      "article": "屈原列传",
-      "word": "聪",
-      "sentence": "屈平疾王听之不聪也。",
-      "targetStart": 7,
-      "targetOccurrence": 1,
-      "explanation": "这里的“聪”是明察，指楚王听闻后不能明辨是非。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“疾”是痛心。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-162",
       "number": 59,
+      "type": "context_meaning",
+      "articleId": "xx2_quyuan",
+      "word": "聪",
+      "sentence": "屈平疾王听之不聪也。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -2519,26 +2272,22 @@
           "text": "声音洪亮"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-163",
-      "type": "context_meaning",
-      "articleId": "xx2_quyuan",
-      "volume": "选择性必修中册",
-      "unit": "第三单元",
-      "article": "屈原列传",
-      "word": "害",
-      "sentence": "上官大夫与之同列，争宠而心害其能。",
-      "targetStart": 13,
-      "targetOccurrence": 1,
-      "explanation": "“心害其能”是嫉妒屈原的才能。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "这里的“聪”是明察，指楚王听闻后不能明辨是非。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-163",
       "number": 60,
+      "type": "context_meaning",
+      "articleId": "xx2_quyuan",
+      "word": "害",
+      "sentence": "上官大夫与之同列，争宠而心害其能。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -2557,26 +2306,22 @@
           "text": "担心、忧虑"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-171",
-      "type": "context_meaning",
-      "articleId": "xx2_suwu",
-      "volume": "选择性必修中册",
-      "unit": "第三单元",
-      "article": "苏武传",
-      "word": "嘉",
-      "sentence": "武帝嘉其义，乃遣武与中郎将常惠等。",
-      "targetStart": 2,
-      "targetOccurrence": 1,
-      "explanation": "“嘉”是赞许。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“心害其能”是嫉妒屈原的才能。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-171",
       "number": 61,
+      "type": "context_meaning",
+      "articleId": "xx2_suwu",
+      "word": "嘉",
+      "sentence": "武帝嘉其义，乃遣武与中郎将常惠等。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -2595,26 +2340,22 @@
           "text": "欢乐、喜庆"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-172",
-      "type": "context_meaning",
-      "articleId": "xx2_suwu",
-      "volume": "选择性必修中册",
-      "unit": "第三单元",
-      "article": "苏武传",
-      "word": "会",
-      "sentence": "会缑王与长水虞常等谋反匈奴中。",
-      "targetStart": 0,
-      "targetOccurrence": 1,
-      "explanation": "“会”指适逢，恰好遇上。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“嘉”是赞许。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-172",
       "number": 62,
+      "type": "context_meaning",
+      "articleId": "xx2_suwu",
+      "word": "会",
+      "sentence": "会缑王与长水虞常等谋反匈奴中。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -2633,26 +2374,22 @@
           "text": "恰好能够"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-173",
-      "type": "context_meaning",
-      "articleId": "xx2_suwu",
-      "volume": "选择性必修中册",
-      "unit": "第三单元",
-      "article": "苏武传",
-      "word": "素",
-      "sentence": "虞常在汉时，素与副张胜相知。",
-      "targetStart": 6,
-      "targetOccurrence": 1,
-      "explanation": "“素”是一向、平素。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“会”指适逢，恰好遇上。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-173",
       "number": 63,
+      "type": "context_meaning",
+      "articleId": "xx2_suwu",
+      "word": "素",
+      "sentence": "虞常在汉时，素与副张胜相知。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -2671,26 +2408,22 @@
           "text": "平常、普通"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-181",
-      "type": "context_meaning",
-      "articleId": "xx2_guoqin",
-      "volume": "选择性必修中册",
-      "unit": "第三单元",
-      "article": "过秦论",
-      "word": "席卷",
-      "sentence": "有席卷天下，包举宇内，囊括四海之意。",
-      "targetStart": 1,
-      "targetOccurrence": 1,
-      "explanation": "“席卷”是名词作状语，像卷席子一样全部卷走。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“素”是一向、平素。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-181",
       "number": 64,
+      "type": "context_meaning",
+      "articleId": "xx2_guoqin",
+      "word": "席卷",
+      "sentence": "有席卷天下，包举宇内，囊括四海之意。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -2709,26 +2442,22 @@
           "text": "用席子包裹财物"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-182",
-      "type": "context_meaning",
-      "articleId": "xx2_guoqin",
-      "volume": "选择性必修中册",
-      "unit": "第三单元",
-      "article": "过秦论",
-      "word": "务",
-      "sentence": "内立法度，务耕织，修守战之具。",
-      "targetStart": 5,
-      "targetOccurrence": 1,
-      "explanation": "“务耕织”是致力于耕作和纺织。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“席卷”是名词作状语，像卷席子一样全部卷走。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-182",
       "number": 65,
+      "type": "context_meaning",
+      "articleId": "xx2_guoqin",
+      "word": "务",
+      "sentence": "内立法度，务耕织，修守战之具。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -2747,26 +2476,22 @@
           "text": "追求名利"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-183",
-      "type": "context_meaning",
-      "articleId": "xx2_guoqin",
-      "volume": "选择性必修中册",
-      "unit": "第三单元",
-      "article": "过秦论",
-      "word": "因",
-      "sentence": "因遗策，南取汉中，西举巴蜀。",
-      "targetStart": 0,
-      "targetOccurrence": 1,
-      "explanation": "“因遗策”是沿袭先人留下的策略。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“务耕织”是致力于耕作和纺织。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-183",
       "number": 66,
+      "type": "context_meaning",
+      "articleId": "xx2_guoqin",
+      "word": "因",
+      "sentence": "因遗策，南取汉中，西举巴蜀。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -2785,26 +2510,22 @@
           "text": "于是、就"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-191",
-      "type": "context_meaning",
-      "articleId": "xx2_wudai",
-      "volume": "选择性必修中册",
-      "unit": "第三单元",
-      "article": "五代史伶官传序",
-      "word": "原",
-      "sentence": "原庄宗之所以得天下，与其所以失之者，可以知之矣。",
-      "targetStart": 0,
-      "targetOccurrence": 1,
-      "explanation": "“原”作动词，是推究根本。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“因遗策”是沿袭先人留下的策略。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-191",
       "number": 67,
+      "type": "context_meaning",
+      "articleId": "xx2_wudai",
+      "word": "原",
+      "sentence": "原庄宗之所以得天下，与其所以失之者，可以知之矣。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -2823,26 +2544,22 @@
           "text": "原谅、宽恕"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-192",
-      "type": "context_meaning",
-      "articleId": "xx2_wudai",
-      "volume": "选择性必修中册",
-      "unit": "第三单元",
-      "article": "五代史伶官传序",
-      "word": "仇",
-      "sentence": "梁，吾仇也；燕王，吾所立；契丹，与吾约为兄弟，而皆背晋以归梁。",
-      "targetStart": 3,
-      "targetOccurrence": 1,
-      "explanation": "“仇”指仇人、仇敌。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“原”作动词，是推究根本。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-192",
       "number": 68,
+      "type": "context_meaning",
+      "articleId": "xx2_wudai",
+      "word": "仇",
+      "sentence": "梁，吾仇也；燕王，吾所立；契丹，与吾约为兄弟，而皆背晋以归梁。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -2861,26 +2578,22 @@
           "text": "忧愁、愁苦"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-193",
-      "type": "context_meaning",
-      "articleId": "xx2_wudai",
-      "volume": "选择性必修中册",
-      "unit": "第三单元",
-      "article": "五代史伶官传序",
-      "word": "恨",
-      "sentence": "此三者，吾遗恨也。",
-      "targetStart": 6,
-      "targetOccurrence": 1,
-      "explanation": "“遗恨”是留下的遗憾。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“仇”指仇人、仇敌。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-193",
       "number": 69,
+      "type": "context_meaning",
+      "articleId": "xx2_wudai",
+      "word": "恨",
+      "sentence": "此三者，吾遗恨也。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -2899,26 +2612,22 @@
           "text": "恨不得、迫切希望"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-201",
-      "type": "context_meaning",
-      "articleId": "xx3_chenqing",
-      "volume": "选择性必修下册",
-      "unit": "第三单元",
-      "article": "陈情表",
-      "word": "闵凶",
-      "sentence": "夙遭闵凶，既无伯叔，终鲜兄弟。",
-      "targetStart": 2,
-      "targetOccurrence": 1,
-      "explanation": "“闵凶”指忧患、不幸；“闵”同“悯”。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“遗恨”是留下的遗憾。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-201",
       "number": 70,
+      "type": "context_meaning",
+      "articleId": "xx3_chenqing",
+      "word": "闵凶",
+      "sentence": "夙遭闵凶，既无伯叔，终鲜兄弟。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -2937,26 +2646,22 @@
           "text": "贫困和凶险的生活"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-202",
-      "type": "context_meaning",
-      "articleId": "xx3_chenqing",
-      "volume": "选择性必修下册",
-      "unit": "第三单元",
-      "article": "陈情表",
-      "word": "见",
-      "sentence": "慈父见背，舅夺母志。",
-      "targetStart": 2,
-      "targetOccurrence": 1,
-      "explanation": "“见背”是弃我而死；“见”是放在动词前表示对自己的指代。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“闵凶”指忧患、不幸；“闵”同“悯”。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-202",
       "number": 71,
+      "type": "context_meaning",
+      "articleId": "xx3_chenqing",
+      "word": "见",
+      "sentence": "慈父见背，舅夺母志。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -2975,26 +2680,22 @@
           "text": "接见、召见"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-203",
-      "type": "context_meaning",
-      "articleId": "xx3_chenqing",
-      "volume": "选择性必修下册",
-      "unit": "第三单元",
-      "article": "陈情表",
-      "word": "夺",
-      "sentence": "慈父见背，舅夺母志。",
-      "targetStart": 6,
-      "targetOccurrence": 1,
-      "explanation": "“夺母志”是改变母亲守节的志向。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“见背”是弃我而死；“见”是放在动词前表示对自己的指代。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-203",
       "number": 72,
+      "type": "context_meaning",
+      "articleId": "xx3_chenqing",
+      "word": "夺",
+      "sentence": "慈父见背，舅夺母志。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -3013,26 +2714,22 @@
           "text": "耽误、错过"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-211",
-      "type": "context_meaning",
-      "articleId": "xx3_xiangjixuan",
-      "volume": "选择性必修下册",
-      "unit": "第三单元",
-      "article": "项脊轩志",
-      "word": "方丈",
-      "sentence": "室仅方丈，可容一人居。",
-      "targetStart": 2,
-      "targetOccurrence": 1,
-      "explanation": "“方丈”是一丈见方，形容房间很小。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“夺母志”是改变母亲守节的志向。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-211",
       "number": 73,
+      "type": "context_meaning",
+      "articleId": "xx3_xiangjixuan",
+      "word": "方丈",
+      "sentence": "室仅方丈，可容一人居。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -3051,26 +2748,22 @@
           "text": "正对着一丈远处"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-212",
-      "type": "context_meaning",
-      "articleId": "xx3_xiangjixuan",
-      "volume": "选择性必修下册",
-      "unit": "第三单元",
-      "article": "项脊轩志",
-      "word": "漉",
-      "sentence": "百年老屋，尘泥渗漉，雨泽下注。",
-      "targetStart": 8,
-      "targetOccurrence": 1,
-      "explanation": "“渗漉”指尘土泥水向下渗漏。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“方丈”是一丈见方，形容房间很小。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-212",
       "number": 74,
+      "type": "context_meaning",
+      "articleId": "xx3_xiangjixuan",
+      "word": "漉",
+      "sentence": "百年老屋，尘泥渗漉，雨泽下注。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -3089,26 +2782,22 @@
           "text": "洗涤、冲刷"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-213",
-      "type": "context_meaning",
-      "articleId": "xx3_xiangjixuan",
-      "volume": "选择性必修下册",
-      "unit": "第三单元",
-      "article": "项脊轩志",
-      "word": "顾",
-      "sentence": "每移案，顾视无可置者。",
-      "targetStart": 4,
-      "targetOccurrence": 1,
-      "explanation": "“顾视”是回头看。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“渗漉”指尘土泥水向下渗漏。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-213",
       "number": 75,
+      "type": "context_meaning",
+      "articleId": "xx3_xiangjixuan",
+      "word": "顾",
+      "sentence": "每移案，顾视无可置者。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -3127,26 +2816,22 @@
           "text": "照顾、关心"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-221",
-      "type": "context_meaning",
-      "articleId": "xx3_lanting",
-      "volume": "选择性必修下册",
-      "unit": "第三单元",
-      "article": "兰亭集序",
-      "word": "修",
-      "sentence": "此地有崇山峻岭，茂林修竹。",
-      "targetStart": 10,
-      "targetOccurrence": 1,
-      "explanation": "“修竹”是高高的竹子。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“顾视”是回头看。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-221",
       "number": 76,
+      "type": "context_meaning",
+      "articleId": "xx3_lanting",
+      "word": "修",
+      "sentence": "此地有崇山峻岭，茂林修竹。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -3165,26 +2850,22 @@
           "text": "美好、善良"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-222",
-      "type": "context_meaning",
-      "articleId": "xx3_lanting",
-      "volume": "选择性必修下册",
-      "unit": "第三单元",
-      "article": "兰亭集序",
-      "word": "激湍",
-      "sentence": "又有清流激湍，映带左右。",
-      "targetStart": 4,
-      "targetOccurrence": 1,
-      "explanation": "“激湍”指流势很急的水。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“修竹”是高高的竹子。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-222",
       "number": 77,
+      "type": "context_meaning",
+      "articleId": "xx3_lanting",
+      "word": "激湍",
+      "sentence": "又有清流激湍，映带左右。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -3203,26 +2884,22 @@
           "text": "回旋的水流"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-223",
-      "type": "context_meaning",
-      "articleId": "xx3_lanting",
-      "volume": "选择性必修下册",
-      "unit": "第三单元",
-      "article": "兰亭集序",
-      "word": "映带",
-      "sentence": "又有清流激湍，映带左右。",
-      "targetStart": 7,
-      "targetOccurrence": 1,
-      "explanation": "“映带左右”是景物相互映衬、环绕在亭子左右。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“激湍”指流势很急的水。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-223",
       "number": 78,
+      "type": "context_meaning",
+      "articleId": "xx3_lanting",
+      "word": "映带",
+      "sentence": "又有清流激湍，映带左右。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -3241,26 +2918,22 @@
           "text": "倒映在水面"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-231",
-      "type": "context_meaning",
-      "articleId": "xx3_guiqulaixi",
-      "volume": "选择性必修下册",
-      "unit": "第三单元",
-      "article": "归去来兮辞并序",
-      "word": "芜",
-      "sentence": "归去来兮！田园将芜胡不归？",
-      "targetStart": 8,
-      "targetOccurrence": 1,
-      "explanation": "“芜”作动词，是荒芜。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“映带左右”是景物相互映衬、环绕在亭子左右。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-231",
       "number": 79,
+      "type": "context_meaning",
+      "articleId": "xx3_guiqulaixi",
+      "word": "芜",
+      "sentence": "归去来兮！田园将芜胡不归？",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -3279,26 +2952,22 @@
           "text": "污秽、不洁"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-232",
-      "type": "context_meaning",
-      "articleId": "xx3_guiqulaixi",
-      "volume": "选择性必修下册",
-      "unit": "第三单元",
-      "article": "归去来兮辞并序",
-      "word": "谏",
-      "sentence": "悟已往之不谏，知来者之可追。",
-      "targetStart": 5,
-      "targetOccurrence": 1,
-      "explanation": "“不谏”是过去的错误已经无法挽回。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“芜”作动词，是荒芜。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-232",
       "number": 80,
+      "type": "context_meaning",
+      "articleId": "xx3_guiqulaixi",
+      "word": "谏",
+      "sentence": "悟已往之不谏，知来者之可追。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -3317,26 +2986,22 @@
           "text": "禁止、阻挡"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-233",
-      "type": "context_meaning",
-      "articleId": "xx3_guiqulaixi",
-      "volume": "选择性必修下册",
-      "unit": "第三单元",
-      "article": "归去来兮辞并序",
-      "word": "恨",
-      "sentence": "问征夫以前路，恨晨光之熹微。",
-      "targetStart": 7,
-      "targetOccurrence": 1,
-      "explanation": "“恨”是遗憾、惋惜天亮得太慢。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“不谏”是过去的错误已经无法挽回。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-233",
       "number": 81,
+      "type": "context_meaning",
+      "articleId": "xx3_guiqulaixi",
+      "word": "恨",
+      "sentence": "问征夫以前路，恨晨光之熹微。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -3355,26 +3020,22 @@
           "text": "恨不得、急切希望"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-241",
-      "type": "context_meaning",
-      "articleId": "xx3_zhongshu",
-      "volume": "选择性必修下册",
-      "unit": "第三单元",
-      "article": "种树郭橐驼传",
-      "word": "号",
-      "sentence": "病偻，隆然伏行，有类橐驼者，故乡人号之‘驼’。",
-      "targetStart": 17,
-      "targetOccurrence": 1,
-      "explanation": "“号之”是给他取名、称呼他。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“恨”是遗憾、惋惜天亮得太慢。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-241",
       "number": 82,
+      "type": "context_meaning",
+      "articleId": "xx3_zhongshu",
+      "word": "号",
+      "sentence": "病偻，隆然伏行，有类橐驼者，故乡人号之‘驼’。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -3393,26 +3054,22 @@
           "text": "名号、字号"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-242",
-      "type": "context_meaning",
-      "articleId": "xx3_zhongshu",
-      "volume": "选择性必修下册",
-      "unit": "第三单元",
-      "article": "种树郭橐驼传",
-      "word": "业",
-      "sentence": "驼业种树，凡长安豪富人为观游及卖果者，皆争迎取养。",
-      "targetStart": 1,
-      "targetOccurrence": 1,
-      "explanation": "“业种树”是以种树为业。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“号之”是给他取名、称呼他。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-242",
       "number": 83,
+      "type": "context_meaning",
+      "articleId": "xx3_zhongshu",
+      "word": "业",
+      "sentence": "驼业种树，凡长安豪富人为观游及卖果者，皆争迎取养。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -3431,26 +3088,22 @@
           "text": "学习、研习"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-243",
-      "type": "context_meaning",
-      "articleId": "xx3_zhongshu",
-      "volume": "选择性必修下册",
-      "unit": "第三单元",
-      "article": "种树郭橐驼传",
-      "word": "实",
-      "sentence": "且硕茂，早实以蕃。",
-      "targetStart": 5,
-      "targetOccurrence": 1,
-      "explanation": "“实”名词作动词，是结果实。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“业种树”是以种树为业。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-243",
       "number": 84,
+      "type": "context_meaning",
+      "articleId": "xx3_zhongshu",
+      "word": "实",
+      "sentence": "且硕茂，早实以蕃。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -3469,26 +3122,22 @@
           "text": "实际、真实"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-251",
-      "type": "context_meaning",
-      "articleId": "xx3_shizhong",
-      "volume": "选择性必修下册",
-      "unit": "第三单元",
-      "article": "石钟山记",
-      "word": "访",
-      "sentence": "至唐李渤始访其遗踪，得双石于潭上，扣而聆之。",
-      "targetStart": 5,
-      "targetOccurrence": 1,
-      "explanation": "“访其遗踪”是探寻石钟山的遗迹。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“实”名词作动词，是结果实。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-251",
       "number": 85,
+      "type": "context_meaning",
+      "articleId": "xx3_shizhong",
+      "word": "访",
+      "sentence": "至唐李渤始访其遗踪，得双石于潭上，扣而聆之。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -3507,26 +3156,22 @@
           "text": "访求意见"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-252",
-      "type": "context_meaning",
-      "articleId": "xx3_shizhong",
-      "volume": "选择性必修下册",
-      "unit": "第三单元",
-      "article": "石钟山记",
-      "word": "遗踪",
-      "sentence": "至唐李渤始访其遗踪，得双石于潭上，扣而聆之。",
-      "targetStart": 7,
-      "targetOccurrence": 1,
-      "explanation": "“遗踪”是前人遗留下来的踪迹。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“访其遗踪”是探寻石钟山的遗迹。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-252",
       "number": 86,
+      "type": "context_meaning",
+      "articleId": "xx3_shizhong",
+      "word": "遗踪",
+      "sentence": "至唐李渤始访其遗踪，得双石于潭上，扣而聆之。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -3545,26 +3190,22 @@
           "text": "剩余的石头"
         }
       ],
-      "answer": "A"
-    },
-    {
-      "id": "bx-basic-253",
-      "type": "context_meaning",
-      "articleId": "xx3_shizhong",
-      "volume": "选择性必修下册",
-      "unit": "第三单元",
-      "article": "石钟山记",
-      "word": "扣",
-      "sentence": "得双石于潭上，扣而聆之。",
-      "targetStart": 7,
-      "targetOccurrence": 1,
-      "explanation": "“扣石”是敲击石头。",
-      "reviewStatus": "verified",
+      "answer": "A",
+      "explanation": "“遗踪”是前人遗留下来的踪迹。",
       "source": {
         "kind": "textbook_word_bank_reviewed",
         "title": "统编版课内文章与教材释义资料（经人工复核）"
-      },
+      }
+    },
+    {
+      "id": "bx-basic-253",
       "number": 87,
+      "type": "context_meaning",
+      "articleId": "xx3_shizhong",
+      "word": "扣",
+      "sentence": "得双石于潭上，扣而聆之。",
+      "targetOccurrence": 1,
+      "stem": "",
       "options": [
         {
           "key": "A",
@@ -3583,7 +3224,626 @@
           "text": "追问、盘问"
         }
       ],
-      "answer": "A"
+      "answer": "A",
+      "explanation": "“扣石”是敲击石头。",
+      "source": {
+        "kind": "textbook_word_bank_reviewed",
+        "title": "统编版课内文章与教材释义资料（经人工复核）"
+      }
     }
-  ]
+  ],
+  "workflow": {
+    "reviews": {
+      "bx-basic-001": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-002": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-003": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-009": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-010": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-011": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-017": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-018": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-019": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-025": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-026": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-027": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-031": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-032": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-033": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-036": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-037": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-038": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-041": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-042": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-043": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-046": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-047": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-048": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-052": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-053": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-054": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-067": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-068": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-069": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-077": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-078": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-079": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-083": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-084": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-085": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-091": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-092": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-093": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-101": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-102": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-103": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-111": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-112": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-113": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-121": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-122": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-123": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-131": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-132": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-133": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-141": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-142": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-143": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-151": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-152": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-153": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-161": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-162": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-163": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-171": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-172": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-173": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-181": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-182": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-183": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-191": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-192": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-193": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-201": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-202": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-203": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-211": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-212": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-213": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-221": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-222": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-223": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-231": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-232": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-233": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-241": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-242": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-243": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-251": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-252": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      },
+      "bx-basic-253": {
+        "status": "passed",
+        "suggestedAnswer": null,
+        "optionIssues": [],
+        "note": "",
+        "reviewedAt": ""
+      }
+    },
+    "duplicateResolutions": {}
+  }
 }
