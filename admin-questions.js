@@ -451,15 +451,21 @@ const renderQuestionImportDialog = () => {
     : "";
   const summaryRows = [
     ["导入题目", summary.importedTotal || 0],
-    ["完全相同（跳过）", summary.exactDuplicates || 0],
-    ["未发现重复的新题", summary.newQuestions || 0],
-    ["同核心细节修改", summary.modified || 0],
-    ["核心内容重大修改", summary.majorModified || 0],
+    ["补充老师已完成审查", summary.reviewsSupplemented || 0],
+    ["本机已审，保持不变", summary.localReviewsPreserved || 0],
+    ["双方仍待审", summary.bothPending || 0],
+    ["新增题目", summary.newQuestions || 0],
+    ["新增题目中已带老师审查", summary.importedReviewedNewQuestions || 0],
+    ["已有题目内容不同", (summary.modified || 0) + (summary.majorModified || 0)],
     ["重复候选", summary.duplicateCandidates || 0],
     ["目录冲突", summary.directoryConflicts || 0],
-    ["审查结论冲突", summary.reviewConflicts || 0],
   ];
-  const needsStrategy = mode === "merge" && ((summary.modified || 0) + (summary.majorModified || 0) + (summary.reviewConflicts || 0) + (summary.directoryConflicts || 0) > 0);
+  const disagreementCount = summary.reviewDisagreements || 0;
+  // Review disagreements are informational only: local reviewed conclusions
+  // are never overwritten, so they must not trigger the content strategy.
+  const needsStrategy = mode === "merge" && ((summary.modified || 0) + (summary.majorModified || 0) + (summary.directoryConflicts || 0) > 0);
+  const isFullBank = preview.format === "wenyan-question-bank" || preview.sourceAllowsReviewTransfer;
+  const previewBadge = preview.sameBank ? "同一题库" : (isFullBank ? "完整题库（跨电脑）" : "外部题库");
   return `
     <div class="question-import-preview-backdrop" role="presentation">
       <section class="question-import-preview" role="dialog" aria-modal="true" aria-labelledby="question-import-preview-title">
@@ -469,21 +475,22 @@ const renderQuestionImportDialog = () => {
             <h2 id="question-import-preview-title">${mode === "replace" ? "确认替换题库" : "确认新增导入题库"}</h2>
             <p class="admin-subtitle">文件：${escapeHtml(sourceName)}。预览只读，确认应用后才会写入本机硬盘。</p>
           </div>
-          <span class="question-import-preview-badge">${preview.sameBank ? "同一题库" : "外部题库"}</span>
+          <span class="question-import-preview-badge">${previewBadge}</span>
         </div>
         <div class="question-import-summary-grid">
           ${summaryRows.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}
         </div>
         ${mode === "replace"
           ? `<p class="question-import-warning">替换会用导入文件建立新的题库版本；当前题库会先自动备份，历史记录保留。此操作只建议用于完整题库恢复。</p>`
-          : preview.sameBank
-            ? `<p class="question-import-note">同一题库导入：默认保留本机的修改题目；未变化题目的已审结论优先于待审，双方均已审结且不一致时按下方策略处理；新题按导入文件的审查状态进入流程。</p>`
+          : isFullBank
+            ? `<p class="question-import-note">本次合并不会覆盖本机已经完成的人工审查。本机仍待审的相同题目会补充导入文件中的审查结果；本机已审结论一律保留；新题随导入文件的审查状态进入流程。</p>`
             : `<p class="question-import-note">外部题库只会新增未重复题目；外部文件中的审查结论不会直接继承，新题导入后进入待审，确认通过后才会给学生抽取。</p>`}
+        ${mode === "merge" && disagreementCount > 0 ? `<p class="question-import-note">其中 ${disagreementCount} 道题两边都已完成审查但结论不同，本次将保留本机现有结论。</p>` : ""}
         ${needsStrategy ? `
           <fieldset class="question-import-strategy">
             <legend>遇到已有内容变化时</legend>
             <label><input type="radio" name="question-import-strategy" value="preserve_local" ${strategy === "preserve_local" ? "checked" : ""}> 保留本机版本（推荐）</label>
-            <label><input type="radio" name="question-import-strategy" value="use_imported" ${strategy === "use_imported" ? "checked" : ""}> 使用导入版本（题目内容及审查状态以导入文件为准；导入端待审时会恢复待审）</label>
+            <label><input type="radio" name="question-import-strategy" value="use_imported" ${strategy === "use_imported" ? "checked" : ""}> 使用导入版本（仅对内容发生变化的题生效；采用后将使用导入文件中的题目内容及对应审查状态。本机原题及审查会保留在导入历史中，可在条件允许时撤销）</label>
           </fieldset>
         ` : ""}
         <div class="question-import-review-summary">
@@ -722,7 +729,14 @@ const applyQuestionImportPreview = async () => {
     } else {
       bank = result.bank;
       questionBankHistory = normalizeQuestionBankHistory(result.history || questionBankHistory);
-      statusMessage = `合并完成：当前题库共 ${bank.questions.length} 道题，新导入题请在快速审查中确认。`;
+      const report = result.report || {};
+      const reviewStats = report.reviewStats || {};
+      const previewSummary = request.preview?.summary || {};
+      const addedCount = previewSummary.newQuestions ?? (Array.isArray(report.acceptedIds) ? report.acceptedIds.length : 0);
+      const supplemented = reviewStats.reviewsSupplemented || 0;
+      const preserved = reviewStats.localReviewsPreserved || 0;
+      const changedCount = (report.questionConflicts || []).length;
+      statusMessage = `合并完成：新增 ${addedCount} 道题；补充 ${supplemented} 道老师已完成的审查；${preserved} 道本机已审结果保持不变${changedCount ? `；${changedCount} 道内容差异按本机版本保留` : ""}。当前题库共 ${bank.questions.length} 道题。`;
     }
     syncReviewsFromBank();
     selectedQuestionId = bank.questions[0]?.id || null;

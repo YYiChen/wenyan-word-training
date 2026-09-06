@@ -934,6 +934,29 @@ def _validate_history_delta(value: Any, label: str) -> dict[str, dict[str, Any]]
     return clean
 
 
+def _validate_history_duplicate_delta(value: Any, label: str) -> dict[str, dict[str, Any]]:
+    # Duplicate-resolution deltas are optional internal history fields: old
+    # events predate them and read as empty.  ``before`` may be None when the
+    # import created a decision for a group that had none.
+    if not isinstance(value, dict):
+        raise ValueError(f"题库历史记录的 {label} 必须是对象。")
+    clean: dict[str, dict[str, Any]] = {}
+    for item_id, delta in value.items():
+        if not isinstance(item_id, str) or not item_id.strip() or not isinstance(delta, dict):
+            raise ValueError(f"题库历史记录的 {label} 包含无效变更项。")
+        before = delta.get("before")
+        after = delta.get("after")
+        if before is not None and not isinstance(before, dict):
+            raise ValueError(f"题库历史记录的 {label} 必须包含 before 快照。")
+        if not isinstance(after, dict):
+            raise ValueError(f"题库历史记录的 {label} 必须包含 after 快照。")
+        clean[item_id.strip()[:120]] = {
+            "before": copy.deepcopy(before) if before is not None else None,
+            "after": copy.deepcopy(after),
+        }
+    return clean
+
+
 def _validate_added_directory_snapshots(value: Any) -> dict[str, dict[str, dict[str, Any]]]:
     if not isinstance(value, dict):
         raise ValueError("题库历史记录的新增目录快照必须是对象。")
@@ -1000,6 +1023,7 @@ def validate_question_bank_history(payload: Any) -> dict[str, Any]:
                 "afterHash": str(raw_event.get("afterHash", "")).strip()[:200],
                 "updatedQuestions": _validate_history_delta(raw_event.get("updatedQuestions", {}), "更新题目"),
                 "updatedReviews": _validate_history_delta(raw_event.get("updatedReviews", {}), "更新审查"),
+                "updatedDuplicateResolutions": _validate_history_duplicate_delta(raw_event.get("updatedDuplicateResolutions", {}), "更新重复处理"),
                 "updatedBooks": _validate_history_delta(raw_event.get("updatedBooks", {}), "更新教材册"),
                 "updatedCatalog": _validate_history_delta(raw_event.get("updatedCatalog", {}), "更新篇目"),
                 "updatedTypes": _validate_history_delta(raw_event.get("updatedTypes", {}), "更新题型"),
@@ -1090,6 +1114,13 @@ def question_bank_history_view(
                         if current_reviews.get(qid) != delta.get("after"):
                             can_revoke = False
                             revoke_reason = "本次导入影响的审查结果后来又被修改，无法安全撤销。"
+                            break
+                if can_revoke:
+                    current_duplicates = question_bank.get("workflow", {}).get("duplicateResolutions", {})
+                    for gid, delta in event.get("updatedDuplicateResolutions", {}).items():
+                        if current_duplicates.get(gid) != delta.get("after"):
+                            can_revoke = False
+                            revoke_reason = "本次导入影响的重复处理结果后来又被修改，无法安全撤销。"
                             break
                 if can_revoke:
                     directory_maps = {

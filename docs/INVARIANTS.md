@@ -22,11 +22,16 @@
 - 同一句多次出现考点词时，v4 只保存 `targetOccurrence`，展示位置由服务端/浏览器根据原句实时计算；历史答题快照中的旧 `targetStart` 不迁移删除。
 - `data/questions.json` 是 v4 完整题库的唯一真相源，快速审查写入 `workflow.reviews`；学生投影不得包含 workflow。
 - 学生可答状态由题目定位诊断、审查状态和重复题处理结果派生，不持久化 `playable` 或 `abnormal`。
-- `bankId` 保持题库 lineage，已有题目的 `id` 编辑不变；普通新增导入由服务端生成新的题目 ID，不能伪造已确认状态。
-- 题目导入必须经过服务端预览/应用并校验 ETag；不同题库的同名 ID 不得覆盖本机题目。
-- 题目核心身份至少包含文章 ID、考点词、原句和出现位置；题目内容细节用于区分同核心不同题。导入不能只按外部 ID 去重。
-- 合并导入的新题会进入候选/审查路径；`abnormal`、`candidate`、`needs_revision`、未处理的重复候选等状态不能被学生端抽取。已通过审查的题目才是正常学生题库；完整替换同一题库时按导入文件状态处理，外部题库替换会清空外部审查结论并从待审开始。未变化的同一题库题目合并审查时，已审结状态优先于待审；双方均已审结但结论不同则按导入策略选择本机或导入结论。
-- 题库变更需要通过服务端验证；题库写入会同步审查状态，导入/导出/撤销导入会保留只读历史。题库历史是只读审计记录，撤销导入通过追加事件完成，不直接删除历史。导入应用必须基于预览返回的题库 ETag，过期预览不得覆盖新版本。
+- `bankId` 保持题库 lineage，用于判断题目 ID 是否具有跨文件稳定身份意义；它不决定教师审查成果是否可以使用。普通新增导入由服务端生成新的题目 ID，不能伪造已确认状态。
+- 题目导入必须经过服务端预览/应用并校验 ETag；不同题库的同名 ID 不得覆盖本机题目。题目内容同步和审查状态同步是两个不同的问题：为了同步 review，绝不能静默修改本机已有题目内容。
+- 题目核心身份至少包含文章 ID、考点词、原句和出现位置；题目内容细节用于区分同核心不同题。导入不能只按外部 ID 去重。semantic fingerprint 用于不同 lineage 间识别 exact logical question。
+- 合并导入的新题会进入候选/审查路径；`abnormal`、`candidate`、`needs_revision`、未处理的重复候选等状态不能被学生端抽取。已通过审查的题目才是正常学生题库。
+- 普通合并（merge）绝不自动覆盖本机已经完成的人工审查：本机 pending 表示“尚无人工结论”，本机非 pending 表示本机已经做过人工处理。对于内容完全相同的题，本机非 pending 永远优先于导入 review（即使选择“使用导入版本”策略，该策略只对内容发生变化的题生效）；本机 pending 可以被完整题库中的非 pending review 整体补充（含 status、note、suggestedAnswer、optionIssues、reviewedAt，不做字段级混合）。审查结论比较只依据 status，reviewedAt/note 不同不算分歧；双方均已审但结论不同时只在预览中作信息提示，本机结论保持不变。
+- 完整题库 JSON（`wenyan-question-bank` 4.0，含 `workflow.reviews`/`workflow.duplicateResolutions`）可以在多台电脑之间迁移审查成果：same-bank 按稳定 ID 匹配（same ID + same semantic content 为未修改，same ID + different content 为内容修改）；different-bank 不信任对方 ID，先做目录映射，再按映射后的 semantic fingerprint 精确匹配同一道逻辑题并通过 questionMap 迁移 review，新题分配新的本机 ID 但随附其 review；same core 但细节不同只进入重复候选，不自动覆盖。合并始终保留本机 `bankId`。
+- 普通 `wenyan-question-import` 只负责导入题目内容，永远不能让题目直接 passed：新增题一律 pending，即使 JSON 中伪造 workflow/reviewStatus/review 也不能继承；它也不能补充本机已有题的 review。
+- 完整题库替换（replace）是整套取代本机：完整采用导入的 bankId、题目、workflow、目录和训练默认设置，不因 bankId 不同而清空 review；普通 question-import 替换则创建新 bankId，全部 pending 并重算重复。
+- 重复处理决定（`workflow.duplicateResolutions`）同样是教师人工审查成果：本机已有 kept/skipped 决定不被自动覆盖；本机无决定时，只有经过目录/题目映射后语义成员完全一致的 group 才能补充对方决定并经 questionMap 转成本机 ID；成员变化则不继承。
+- 题库变更需要通过服务端验证；题库写入会同步审查状态，导入/导出/撤销导入会保留只读历史。导入历史记录实际发生变化的 review（`updatedReviews` before/after）和重复处理决定（`updatedDuplicateResolutions`，旧事件缺省为空）；未被修改的本机审查不记 delta。撤销导入通过追加事件完成，不直接删除历史；若导入后相关审查又被人工修改，则 after 状态校验失败，`canRevoke` 为 false 并提示“本次导入影响的审查结果后来又被修改，无法安全撤销”。导入应用必须基于预览返回的题库 ETag，过期预览不得覆盖新版本。
 - 题目可用性由服务端派生并提供稳定 `availability.reason`：`playable`、`invalid`、`review_pending`、`review_needs_revision`、`review_skipped`、`duplicate_pending` 或 `duplicate_skipped`；学生端只依据 `playable` 抽题，后台展示不得重新推导另一套可用性规则。
 
 ## 3. 计分、限时和答题状态

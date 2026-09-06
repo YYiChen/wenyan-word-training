@@ -64,6 +64,17 @@ def build_import_delta(previous: dict[str, Any], current: dict[str, Any]) -> dic
         for qid in old_reviews.keys() & new_reviews.keys()
         if old_reviews.get(qid) != new_reviews.get(qid)
     }
+    # Reviews supplemented from another computer (pending -> passed) must be
+    # restorable by revoke, while untouched local reviews never enter the
+    # delta because they never changed.
+    old_duplicates = previous.get("workflow", {}).get("duplicateResolutions", {})
+    new_duplicates = current.get("workflow", {}).get("duplicateResolutions", {})
+    updated_duplicate_resolutions = {}
+    for gid in set(old_duplicates) | set(new_duplicates):
+        before = copy.deepcopy(old_duplicates.get(gid))
+        after = copy.deepcopy(new_duplicates.get(gid))
+        if before != after:
+            updated_duplicate_resolutions[gid] = {"before": before, "after": after}
 
     def directory_delta(
         key: str,
@@ -86,6 +97,7 @@ def build_import_delta(previous: dict[str, Any], current: dict[str, Any]) -> dic
         },
         "updatedQuestions": updated,
         "updatedReviews": updated_reviews,
+        "updatedDuplicateResolutions": updated_duplicate_resolutions,
         "updatedBooks": directory_delta("books", "id"),
         "updatedCatalog": directory_delta("catalog", "id"),
         "updatedTypes": directory_delta("questionTypes", "id"),
@@ -256,6 +268,12 @@ def revoke_question_bank_import(event_id: str) -> tuple[dict[str, Any], dict[str
                     raise ValueError("本次导入影响的审查结果后来又被修改，无法安全撤销。")
                 if delta.get("before") is None: reviews.pop(qid, None)
                 else: reviews[qid] = copy.deepcopy(delta["before"])
+            duplicates = next_bank["workflow"].setdefault("duplicateResolutions", {})
+            for gid, delta in target.get("updatedDuplicateResolutions", {}).items():
+                if duplicates.get(gid) != delta.get("after"):
+                    raise ValueError("本次导入影响的重复处理结果后来又被修改，无法安全撤销。")
+                if delta.get("before") is None: duplicates.pop(gid, None)
+                else: duplicates[gid] = copy.deepcopy(delta["before"])
 
             directory_specs = (
                 ("books", "updatedBooks", "addedBookIds"),

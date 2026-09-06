@@ -122,7 +122,7 @@ finishGame -> result -> 保存答题记录 + 可选排行榜
 | `server_storage.py` | JSON 读取、先备份、临时文件 flush/fsync、`os.replace` 原子写入、备份轮转 |
 | `server_validators.py` | 题库、题目、目录、题型、计分、排行榜、solo/PK 记录、历史和审查的纯校验/归一化/身份规则 |
 | `server_questions.py` | 题库和审查文件路径配置、题库初始化、审查同步、导入历史、合并/替换撤销 |
-| `server_question_import.py` | Schema v4 导入格式识别、目录 ID 映射、外部题去重、同题库冲突分类、审查继承策略和导入预览/应用所共用的唯一合并逻辑 |
+| `server_question_import.py` | Schema v4 导入格式识别、目录 ID 映射、questionMap（导入题目 ID → 本机题目 ID）、同题库冲突分类、跨 bank 语义精确匹配、审查成果非破坏合并、重复处理决定合并，以及导入预览/应用共用的唯一合并逻辑 |
 | `server_records.py` | 答题记录和排行榜迁移/读取/留存、solo 结果幂等保存、PK 结果按 matchId 幂等保存 |
 | `update_service.py` | 读取 GitHub stable release、版本/资产/sha256 检查、下载和启动更新助手 |
 | `update_helper.py` | 读取更新 manifest、拒绝数据/题库/路径穿越、备份被替换代码、原子覆盖、失败回滚、重启 |
@@ -264,5 +264,7 @@ RUNTIME_PYTHON_FILES
 
 运行代码在根目录的 HTML/JS/CSS、`tools/` 服务和构建脚本；测试在 `tests/` 与 `tools/test_*.js`；公开样例在 `public-data/`；`data/`、`release/`、`release-build-v*/` 和缓存目录是本机运行/构建产物，按 `.gitignore` 不属于公开代码交付面。当前本地还存在空的 `demos/` 目录，但它没有运行清单文件，也不是正式运行依赖。
 - 题库 Schema v4：`data/questions.json` 是完整教师题库的 canonical 文件，目录、题目、`bankId`、训练默认设置以及 `workflow.reviews`/`workflow.duplicateResolutions` 均在同一份 v4 文档中。旧版 `question-reviews.json` 仅用于 v3 首次升级迁移，不再作为运行时审查真相源。
+- `bankId` 只表达 stable identity lineage（同一 lineage 内 same question ID 即同一条记录）；semantic fingerprint 用于不同 lineage 间识别同一道逻辑题。`workflow` review 可通过完整题库合并迁移，但本机非 pending review 在合并中永远 authoritative。
 - 学生端读取 `/api/questions` 获得无教师工作流的投影；管理员读取 `/api/admin-question-bank` 获得完整题库和派生诊断。题目是否可答由服务端计算，定位异常、未通过审查和未处理重复候选均会阻止抽题。
 - 普通新增题支持 `/api/question-bank-import/preview` 与 `/api/question-bank-import/apply`；旧的 `/api/question-bank-import` 直写入口返回 410，应用前会校验题库 ETag。
+- “新增导入题库（合并）”对完整题库文件是非破坏性的审查成果汇总：本机待审的相同题目补充对方已审结果，本机已审结论一律保留，新题随附其审查状态；内容策略（保留本机/使用导入版本）只对内容发生变化的题生效。普通 `wenyan-question-import` 新增题一律 pending。“导入并替换”对完整题库是整体迁移（含 workflow），对普通模板是全新 pending lineage。预览统计（补充/保持/待审/分歧/新题已审）与应用执行同一服务端 planner，因此两者完全一致。
