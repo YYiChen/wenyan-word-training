@@ -986,21 +986,6 @@
   white-space: nowrap;
 }
 
-.settings-security-card {
-  margin-top: 18px;
-  padding: 22px;
-}
-
-.settings-security-form {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-items: end;
-}
-
-.settings-security-form .admin-primary {
-  min-height: 42px;
-  align-self: end;
-}
-
 .settings-badge {
   flex-shrink: 0;
   padding: 5px 8px;
@@ -1619,6 +1604,13 @@
 .admin-secondary:hover { background: var(--surface-soft); }
 .admin-danger:hover { background: #ffe1dc; }
 
+.update-github-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
 .leaderboard-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 310px;
@@ -1873,7 +1865,7 @@
   .update-modal-backdrop { padding: 12px; }
   .update-modal { max-height: calc(100vh - 24px); padding: 20px; }
   .update-modal-heading { display: grid; }
-  .update-modal-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .update-modal-actions { display: grid; grid-template-columns: 1fr; }
   .update-modal-actions > * { width: 100%; }
   .question-tools { align-items: stretch; flex-direction: column; }
   .question-tools-actions > * { flex: 1; }
@@ -1896,7 +1888,6 @@
   .review-filters,
   .review-issue-form { grid-template-columns: 1fr; }
   .review-options { grid-template-columns: 1fr; }
-  .settings-security-form { grid-template-columns: 1fr; }
   .review-card-actions { justify-content: flex-start; }
   .review-issue-actions { grid-column: auto; }
   .leaderboard-table { min-width: 590px; }

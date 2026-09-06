@@ -273,7 +273,7 @@ const renderStart = () => {
         <p class="eyebrow">文言实词 · 限时训练</p>
         <h1 id="start-title">在语境里，<br />认出那个词。</h1>
         <p class="start-subtitle">从教材原句中辨认实词义项。在 ${formatSeconds(config.durationSeconds)} 内连续答题，看看你能拿到多少分。</p>
-        <p class="start-note">${hasQuestions ? `题库覆盖必修与选择性必修教材的课内文章；${candidateCount ? `${candidateCount} 道候选题待教师复核，` : ""}${abnormalCount ? `${abnormalCount} 道划线异常题已自动跳过，` : ""}${hasPlayableQuestions ? "答题时只改变选项顺序。" : "当前所选范围没有可答题目，请更换教材册或篇目。"}` : "当前未内置题库，请先进入管理后台导入题库后再开始答题。"}</p>
+        <p class="start-note">${hasQuestions ? `题库覆盖必修与选择性必修教材的课内文章；${candidateCount ? `${candidateCount} 道候选题待教师复核，` : ""}${abnormalCount ? `${abnormalCount} 道划线异常题已自动跳过，` : ""}${hasPlayableQuestions ? "答题时只改变选项顺序。" : "当前所选范围没有可答题目，请更换教材册或篇目。"}` : "当前未配置题库，请先由教师完成题库配置后再开始答题。"}</p>
       </div>
       <div class="start-card">
         <p class="card-label">选择训练范围</p>
@@ -318,7 +318,6 @@ const renderStart = () => {
           <button class="secondary-button pk-entry-button" type="button" data-action="pk" ${hasPlayableQuestions ? "" : "disabled"}>双人 PK</button>
           <button class="secondary-button" type="button" data-action="leaderboard">查看排行榜</button>
         </div>
-        <a class="admin-link" href="./admin.html">进入管理后台</a>
       </div>
     </section>
   `;

@@ -28,10 +28,24 @@ const updatePhaseLabel = (phase) => ({
   failed: "更新失败，已保留当前版本",
 }[phase] || "更新状态未知");
 
+const getReleasePageUrl = () => {
+  const candidate = String(updateStatus?.htmlUrl || "").trim();
+  if (!candidate) return "";
+  try {
+    const url = new URL(candidate, window.location.href);
+    if (url.protocol !== "https:" || url.hostname !== "github.com") return "";
+    if (!/^\/[^/]+\/[^/]+\/releases\//.test(url.pathname)) return "";
+    return url.href;
+  } catch {
+    return "";
+  }
+};
+
 const renderUpdateModal = () => {
   if (!updateModalOpen || !updateStatus?.available) return "";
   const busy = UPDATE_BUSY_PHASES.has(updateStatus.phase) || updateRestarting;
   const canApply = updateStatus.canApply !== false;
+  const releasePageUrl = getReleasePageUrl();
   const note = updateStatus.notes || "此次 Release 未提供详细更新说明。";
   const blockedMessage = updateStatus.sourceClean === false
     ? "检测到源码目录存在未提交修改或本地文件变更。为避免覆盖你的代码，本次不会自动替换源码。"
@@ -59,6 +73,7 @@ const renderUpdateModal = () => {
         ${updateStatus.phase === "failed" ? `<p class="update-blocked-note">更新包下载、校验或启动更新助手失败，当前版本未被替换。</p>` : ""}
         <div class="update-modal-actions">
           <button class="admin-secondary" type="button" data-action="dismiss-update" ${busy ? "disabled" : ""}>稍后</button>
+          ${releasePageUrl ? `<a class="admin-secondary update-github-link" href="${escapeHtml(releasePageUrl)}" target="_blank" rel="noopener noreferrer">在 GitHub 查看 / 下载</a>` : ""}
           <button class="admin-primary" type="button" data-action="apply-update" ${busy || !canApply ? "disabled" : ""}>${applyLabel}</button>
         </div>
       </section>

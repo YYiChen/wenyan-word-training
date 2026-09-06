@@ -18,8 +18,9 @@ import urllib.error
 import urllib.request
 import webbrowser
 from pathlib import Path
-from tkinter import BOTH, LEFT, RIGHT, X, Button, StringVar, Tk, messagebox
+from tkinter import BOTH, LEFT, RIGHT, X, Button, Entry, StringVar, Tk, Toplevel, messagebox
 from tkinter import Frame, Label, font as tkfont
+from urllib.parse import quote
 
 import run_server
 
@@ -264,9 +265,15 @@ class LauncherApp:
         self.admin_button = self._make_button(
             action_row,
             text="打开管理后台",
-            command=lambda: self.open_page(admin_url(self.port)),
+            command=self.open_admin,
         )
         self.admin_button.pack(side=LEFT)
+        self.password_button = self._make_button(
+            action_row,
+            text="修改管理员密码",
+            command=self.open_password_change,
+        )
+        self.password_button.pack(side=LEFT, padx=(10, 0))
 
         footer = Frame(outer, bg=COLOR_WINDOW)
         footer.pack(fill=X, side="bottom")
@@ -336,6 +343,7 @@ class LauncherApp:
         state = "normal" if enabled else "disabled"
         self.student_button.configure(state=state)
         self.admin_button.configure(state=state)
+        self.password_button.configure(state=state)
         if self.closing:
             self.exit_button.configure(state="disabled")
 
@@ -418,6 +426,217 @@ class LauncherApp:
             webbrowser.open(url)
         except Exception as error:
             self.set_status("服务正在运行", f"浏览器打开失败，请手动访问：{url}（{error}）", COLOR_WARNING)
+
+    def open_admin(self) -> None:
+        if not self.ready:
+            return
+        dialog = Toplevel(self.root)
+        dialog.title("管理员验证")
+        dialog.configure(bg=COLOR_WINDOW)
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        outer = Frame(dialog, bg=COLOR_WINDOW, padx=24, pady=22)
+        outer.pack(fill=BOTH, expand=True)
+        Label(
+            outer,
+            text="管理员验证",
+            bg=COLOR_WINDOW,
+            fg=COLOR_TEXT,
+            font=(self.ui_font, 15, "bold"),
+            anchor="w",
+        ).pack(fill=X)
+        Label(
+            outer,
+            text="请输入管理员密码后打开管理后台。",
+            bg=COLOR_WINDOW,
+            fg=COLOR_MUTED,
+            font=(self.ui_font, 9),
+            anchor="w",
+        ).pack(fill=X, pady=(5, 14))
+        Label(
+            outer,
+            text="管理密码",
+            bg=COLOR_WINDOW,
+            fg=COLOR_TEXT,
+            font=(self.ui_font, 10),
+            anchor="w",
+        ).pack(fill=X)
+        password_entry = Entry(
+            outer,
+            show="●",
+            font=(self.ui_font, 11),
+            relief="flat",
+            highlightbackground=COLOR_BORDER,
+            highlightcolor=COLOR_ACCENT,
+            highlightthickness=1,
+        )
+        password_entry.pack(fill=X, pady=(5, 0))
+        error_text = StringVar(value="")
+        Label(
+            outer,
+            textvariable=error_text,
+            bg=COLOR_WINDOW,
+            fg=COLOR_ERROR,
+            font=(self.ui_font, 9),
+            anchor="w",
+        ).pack(fill=X, pady=(7, 0))
+        actions = Frame(outer, bg=COLOR_WINDOW)
+        actions.pack(fill=X, pady=(16, 0))
+
+        def cancel() -> None:
+            password_entry.delete(0, "end")
+            dialog.destroy()
+
+        def submit() -> None:
+            password = password_entry.get()
+            password_entry.delete(0, "end")
+            try:
+                authenticated = run_server.authenticate_admin_password(password)
+            except Exception:
+                authenticated = False
+            password = ""
+            if not authenticated:
+                error_text.set("管理密码不正确。")
+                password_entry.focus_set()
+                return
+            try:
+                ticket = run_server.create_admin_launch_ticket()
+            except Exception:
+                error_text.set("暂时无法打开管理后台，请稍后重试。")
+                return
+            dialog.destroy()
+            self.open_page(f"{admin_url(self.port)}#launch={quote(ticket, safe='')}")
+
+        self._make_button(actions, text="取消", command=cancel).pack(side=RIGHT)
+        self._make_button(actions, text="进入管理后台", command=submit, primary=True).pack(side=RIGHT, padx=(0, 10))
+        dialog.bind("<Return>", lambda _event: submit())
+        dialog.bind("<Escape>", lambda _event: cancel())
+        dialog.protocol("WM_DELETE_WINDOW", cancel)
+        password_entry.focus_set()
+
+    def open_password_change(self) -> None:
+        if not self.ready:
+            return
+        dialog = Toplevel(self.root)
+        dialog.title("修改管理员密码")
+        dialog.configure(bg=COLOR_WINDOW)
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        outer = Frame(dialog, bg=COLOR_WINDOW, padx=24, pady=22)
+        outer.pack(fill=BOTH, expand=True)
+        Label(
+            outer,
+            text="修改管理员密码",
+            bg=COLOR_WINDOW,
+            fg=COLOR_TEXT,
+            font=(self.ui_font, 15, "bold"),
+            anchor="w",
+        ).pack(fill=X)
+        Label(
+            outer,
+            text="修改成功后，已有后台授权会立即失效。",
+            bg=COLOR_WINDOW,
+            fg=COLOR_MUTED,
+            font=(self.ui_font, 9),
+            anchor="w",
+        ).pack(fill=X, pady=(5, 14))
+
+        entries: dict[str, Entry] = {}
+        for key, label in (
+            ("current", "当前密码"),
+            ("new", "新密码"),
+            ("confirm", "确认新密码"),
+        ):
+            Label(
+                outer,
+                text=label,
+                bg=COLOR_WINDOW,
+                fg=COLOR_TEXT,
+                font=(self.ui_font, 10),
+                anchor="w",
+            ).pack(fill=X, pady=(8 if entries else 0, 0))
+            entry = Entry(
+                outer,
+                show="●",
+                font=(self.ui_font, 11),
+                relief="flat",
+                highlightbackground=COLOR_BORDER,
+                highlightcolor=COLOR_ACCENT,
+                highlightthickness=1,
+            )
+            entry.pack(fill=X, pady=(5, 0))
+            entries[key] = entry
+
+        error_text = StringVar(value="")
+        Label(
+            outer,
+            textvariable=error_text,
+            bg=COLOR_WINDOW,
+            fg=COLOR_ERROR,
+            font=(self.ui_font, 9),
+            anchor="w",
+            justify="left",
+            wraplength=360,
+        ).pack(fill=X, pady=(7, 0))
+        actions = Frame(outer, bg=COLOR_WINDOW)
+        actions.pack(fill=X, pady=(16, 0))
+
+        def clear_entries() -> None:
+            for entry in entries.values():
+                entry.delete(0, "end")
+
+        def cancel() -> None:
+            clear_entries()
+            dialog.destroy()
+
+        def submit() -> None:
+            current = entries["current"].get()
+            new = entries["new"].get()
+            confirm = entries["confirm"].get()
+            clear_entries()
+            if new != confirm:
+                error_text.set("两次输入的新密码不一致。")
+                entries["new"].focus_set()
+                return
+            try:
+                with run_server.WRITE_LOCK:
+                    changed = run_server.change_admin_password(current, new)
+            except ValueError as error:
+                error_text.set(str(error))
+                entries["current"].focus_set()
+                return
+            except OSError:
+                error_text.set("密码保存失败，请检查应用目录权限。")
+                entries["current"].focus_set()
+                return
+            except Exception:
+                error_text.set("密码保存失败，请稍后重试。")
+                entries["current"].focus_set()
+                return
+            current = ""
+            new = ""
+            confirm = ""
+            if not changed:
+                error_text.set("当前密码不正确。")
+                entries["current"].focus_set()
+                return
+            dialog.destroy()
+            messagebox.showinfo(
+                APP_TITLE,
+                "管理员密码已修改。\n已有管理后台授权已失效，请使用新密码重新打开管理后台。",
+                parent=self.root,
+            )
+
+        self._make_button(actions, text="取消", command=cancel).pack(side=RIGHT)
+        self._make_button(actions, text="保存新密码", command=submit, primary=True).pack(side=RIGHT, padx=(0, 10))
+        dialog.bind("<Return>", lambda _event: submit())
+        dialog.bind("<Escape>", lambda _event: cancel())
+        dialog.protocol("WM_DELETE_WINDOW", cancel)
+        entries["current"].focus_set()
 
     def begin_close(self, confirm: bool = True) -> None:
         if self.closing:

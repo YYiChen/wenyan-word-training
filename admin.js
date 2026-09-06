@@ -10,7 +10,7 @@ const API = {
   questionBankImport: "./api/question-bank-import",
   questionBankRevoke: "./api/question-bank-history/revoke",
   adminAuth: "./api/admin-auth",
-  adminSettings: "./api/admin-settings",
+  adminLaunchSession: "./api/admin-launch-session",
   updateStatus: "./api/update-status",
   updateCheck: "./api/update-check",
   updateApply: "./api/update-apply",
@@ -75,15 +75,12 @@ const render = () => {
     questions: "管理题库与成绩",
     settings: "题库结构设置",
     scoring: "计分机制",
-    security: "管理员密码",
     leaderboard: "排行榜管理",
     records: "答题记录",
   }[activeTab] || "管理后台";
   const pageSubtitle = isReviewTab
     ? "按顺序滚动查看全部题目，优先核对系统标出的正确答案。"
-    : activeTab === "security"
-      ? "修改管理员密码后，当前后台授权会立即失效，需要使用新密码重新登录。"
-      : activeTab === "scoring"
+    : activeTab === "scoring"
         ? "选择当前全局计分机制；新开的训练局会使用保存后的规则。"
       : "题库修改会写入应用数据；排行榜写入电脑用户目录，浏览器关闭、刷新或更换浏览器后仍会保留。";
   adminApp.innerHTML = `
@@ -105,11 +102,10 @@ const render = () => {
       <button class="admin-tab ${activeTab === "questions" ? "active" : ""}" type="button" data-tab="questions">题库管理</button>
       <button class="admin-tab ${activeTab === "settings" ? "active" : ""}" type="button" data-tab="settings">题库结构</button>
       <button class="admin-tab ${activeTab === "scoring" ? "active" : ""}" type="button" data-tab="scoring">计分机制</button>
-      <button class="admin-tab ${activeTab === "security" ? "active" : ""}" type="button" data-tab="security">管理员密码</button>
       <button class="admin-tab ${activeTab === "leaderboard" ? "active" : ""}" type="button" data-tab="leaderboard">排行榜管理</button>
       <button class="admin-tab ${activeTab === "records" ? "active" : ""}" type="button" data-tab="records">答题记录</button>
     </nav>
-    ${activeTab === "review" ? renderReviewTab() : activeTab === "questions" ? renderQuestionTab() : activeTab === "settings" ? renderSettingsTab() : activeTab === "scoring" ? renderScoringTab() : activeTab === "security" ? renderSecurityTab() : activeTab === "records" ? renderAnswerRecordsTab() : renderLeaderboardTab()}
+    ${activeTab === "review" ? renderReviewTab() : activeTab === "questions" ? renderQuestionTab() : activeTab === "settings" ? renderSettingsTab() : activeTab === "scoring" ? renderScoringTab() : activeTab === "records" ? renderAnswerRecordsTab() : renderLeaderboardTab()}
     ${renderUpdateModal()}
   `;
   wireEvents();
@@ -152,10 +148,6 @@ const wireEvents = () => {
   }
   if (activeTab === "scoring") {
     wireScoringEvents();
-    return;
-  }
-  if (activeTab === "security") {
-    wireSecurityEvents();
     return;
   }
   if (activeTab === "records") {

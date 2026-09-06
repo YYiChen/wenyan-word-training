@@ -1971,7 +1971,7 @@ h2 {
 .pk-mode-choice {
   display: grid;
   gap: 6px;
-  min-height: 92px;
+  min-height: 116px;
   padding: 16px;
   text-align: left;
 }
@@ -1981,6 +1981,7 @@ h2 {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 .pk-mode-choice.active,

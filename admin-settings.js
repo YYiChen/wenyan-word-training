@@ -1,4 +1,4 @@
-// admin-settings.js: settings, scoring and administrator password workflows
+// admin-settings.js: question-bank structure and scoring settings
 // Classic script module; shared state and API contracts remain in admin.js.
 
 const renderQuestionTypeSettings = () => `
@@ -106,35 +106,6 @@ const renderArticleSettings = () => `
   </section>
 `;
 
-const renderSecurityTab = () => `
-  <section class="settings-intro admin-card">
-    <h2 class="admin-card-title">管理员密码</h2>
-    <p>在这里修改进入管理后台的密码。保存成功后当前后台授权会立即失效，需要使用新密码重新登录。</p>
-  </section>
-  <section class="admin-card settings-security-card">
-    <div class="settings-card-heading">
-      <div>
-        <h2 class="admin-card-title">修改登录密码</h2>
-        <p>密码保存在本机应用数据目录，不依赖浏览器缓存；修改完成后会立即要求重新登录。</p>
-      </div>
-      <span class="settings-badge">本机配置</span>
-    </div>
-    <form id="admin-password-form" class="settings-form settings-security-form">
-      <label class="editor-field">当前密码
-        <input class="admin-input" name="currentPassword" type="password" autocomplete="current-password" minlength="6" maxlength="64" required />
-      </label>
-      <label class="editor-field">新密码
-        <input class="admin-input" name="newPassword" type="password" autocomplete="new-password" minlength="6" maxlength="64" required />
-      </label>
-      <label class="editor-field">确认新密码
-        <input class="admin-input" name="confirmPassword" type="password" autocomplete="new-password" minlength="6" maxlength="64" required />
-      </label>
-      <button class="admin-primary" type="submit">保存新密码</button>
-    </form>
-    <p class="editor-help">密码长度为 6-64 个字符。当前版本只是本机后台入口，不能替代真正的账户系统。</p>
-  </section>
-`;
-
 const renderSettingsTab = () => `
   <section class="settings-intro admin-card">
     <h2 class="admin-card-title">题库结构设置</h2>
@@ -156,7 +127,6 @@ const renderScoringPreview = (config) => {
     <div class="scoring-preview-line"><span class="scoring-preview-label">连续答错</span><strong>${formatScoreDelta(wrongBase.scoreDelta)} → … → 第 ${config.wrongStreakAfter + 1} 题 ${formatScoreDelta(wrongSuper.scoreDelta)}</strong></div>
   `;
 };
-
 const renderScoringTab = () => {
   const config = normalizeScoringConfig(bank.quizDefaults);
   const rawDuration = Number(bank.quizDefaults?.durationSeconds);
@@ -246,20 +216,6 @@ const renderScoringTab = () => {
       </section>
     </form>
   `;
-};
-
-const saveAdminPassword = async (form) => {
-  const formData = new FormData(form);
-  const currentPassword = formData.get("currentPassword").toString();
-  const newPassword = formData.get("newPassword").toString();
-  const confirmPassword = formData.get("confirmPassword").toString();
-  if (newPassword !== confirmPassword) throw new Error("两次输入的新密码不一致。");
-  await putJson(API.adminSettings, { currentPassword, newPassword });
-  adminAuthorized = false;
-  activeTab = "review";
-  statusMessage = "";
-  loginError = "管理员密码已修改，请使用新密码重新登录。";
-  renderLogin();
 };
 
 const readScoringForm = (form) => {
@@ -376,7 +332,6 @@ const wireScoringEvents = () => {
     }
   });
 };
-
 const wireSettingsEvents = () => {
   const bindForm = (selector, save, buttonText) => {
     const form = adminApp.querySelector(selector);
@@ -428,26 +383,5 @@ const wireSettingsEvents = () => {
         window.alert(error instanceof Error ? error.message : "删除文章失败。");
       }
     });
-  });
-};
-
-const wireSecurityEvents = () => {
-  const form = adminApp.querySelector("#admin-password-form");
-  form?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const submitButton = form.querySelector('button[type="submit"]');
-    if (submitButton) {
-      submitButton.disabled = true;
-      submitButton.textContent = "正在保存…";
-    }
-    try {
-      await saveAdminPassword(form);
-    } catch (error) {
-      if (submitButton) {
-        submitButton.disabled = false;
-        submitButton.textContent = "保存新密码";
-      }
-      window.alert(error instanceof Error ? error.message : "密码保存失败。");
-    }
   });
 };

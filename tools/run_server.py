@@ -111,6 +111,9 @@ from server_auth import (
     ADMIN_SESSIONS,
     ADMIN_SESSION_LOCK,
     authenticate_admin_password as _authenticate_admin_password,
+    change_admin_password as _change_admin_password,
+    consume_admin_launch_ticket,
+    create_admin_launch_ticket,
     create_admin_session,
     hash_admin_password,
     is_valid_admin_session,
@@ -142,6 +145,7 @@ from server_records import (
 WRITE_LOCK = Lock()
 UPDATE_MANAGER: UpdateManager | None = None
 HTTP_SERVER: ThreadingHTTPServer | None = None
+ALLOW_BROWSER_ADMIN_LOGIN = False
 
 
 def read_admin_password_hash() -> str:
@@ -150,6 +154,16 @@ def read_admin_password_hash() -> str:
 
 def authenticate_admin_password(password: Any) -> bool:
     return _authenticate_admin_password(password, ADMIN_SETTINGS_PATH)
+
+
+def change_admin_password(current_password: Any, new_password: Any) -> bool:
+    return _change_admin_password(
+        current_password,
+        new_password,
+        ADMIN_SETTINGS_PATH,
+        backup_and_write,
+        ADMIN_SETTINGS_BACKUP_DIR,
+    )
 
 
 def backup_and_write(path: Path, payload: Any, backup_dir: Path | None = None) -> None:
@@ -524,6 +538,7 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
                 "app": APP_NAME,
                 "version": APP_VERSION,
                 "apiVersion": 1,
+                "browserAdminLoginAllowed": ALLOW_BROWSER_ADMIN_LOGIN,
             })
             return
         if route == "/api/update-status":
@@ -589,9 +604,7 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
                 self.send_api_error(f"读取题库历史记录失败：{error}", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
         if route == "/api/admin-settings":
-            if not self.require_admin():
-                return
-            self.send_json({"ok": True, "data": {"passwordConfigured": ADMIN_SETTINGS_PATH.exists()}})
+            self.send_api_error("管理员密码管理已迁移到 Windows 启动窗口。", HTTPStatus.FORBIDDEN)
             return
         super().do_GET()
 
@@ -608,6 +621,9 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
                     return
                 revoke_admin_session(self.headers.get("X-Wenyan-Admin-Token", "").strip())
                 self.send_json({"ok": True})
+                return
+            if route == "/api/admin-auth" and not ALLOW_BROWSER_ADMIN_LOGIN:
+                self.send_api_error("浏览器管理员密码登录未启用，请从 Windows 启动窗口进入管理后台。", HTTPStatus.FORBIDDEN)
                 return
             if route in {
                 "/api/update-check",
@@ -639,6 +655,13 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
             if route == "/api/admin-auth":
                 if not isinstance(payload, dict) or not authenticate_admin_password(payload.get("password")):
                     self.send_api_error("管理员密码不正确。", HTTPStatus.UNAUTHORIZED)
+                    return
+                self.send_json({"ok": True, "data": {"token": create_admin_session()}})
+                return
+            if route == "/api/admin-launch-session":
+                ticket = payload.get("ticket") if isinstance(payload, dict) else None
+                if not consume_admin_launch_ticket(ticket):
+                    self.send_api_error("管理员启动授权已失效，请从 Windows 启动窗口重新进入。", HTTPStatus.UNAUTHORIZED)
                     return
                 self.send_json({"ok": True, "data": {"token": create_admin_session()}})
                 return
@@ -784,7 +807,10 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
     def do_PUT(self) -> None:
         route = urlparse(self.path).path
         try:
-            if route in {"/api/questions", "/api/leaderboard", "/api/admin-settings"} and not self.require_admin():
+            if route == "/api/admin-settings":
+                self.send_api_error("管理员密码管理已迁移到 Windows 启动窗口。", HTTPStatus.FORBIDDEN)
+                return
+            if route in {"/api/questions", "/api/leaderboard"} and not self.require_admin():
                 return
             payload = self.read_request_json()
             with WRITE_LOCK:
@@ -811,28 +837,6 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
                     result = validate_leaderboard(payload)
                     backup_and_write(LEADERBOARD_PATH, result, LEADERBOARD_BACKUP_DIR)
                     self.send_json({"ok": True, "data": result}, extra_headers={"ETag": make_json_etag(result)})
-                    return
-                if route == "/api/admin-settings":
-                    if not isinstance(payload, dict):
-                        raise ValueError("管理员密码修改请求必须是对象。")
-                    current_password = validate_admin_password(payload.get("currentPassword"), "当前管理员密码")
-                    new_password = validate_admin_password(payload.get("newPassword"), "新管理员密码")
-                    if not (
-                        hmac.compare_digest(hash_admin_password(current_password), read_admin_password_hash())
-                        or hmac.compare_digest(hash_admin_password(current_password), SUPER_ADMIN_PASSWORD_HASH)
-                    ):
-                        self.send_api_error("当前管理员密码不正确。", HTTPStatus.UNAUTHORIZED)
-                        return
-                    if hmac.compare_digest(hash_admin_password(new_password), SUPER_ADMIN_PASSWORD_HASH):
-                        raise ValueError("新密码不能使用固定检修密码。")
-                    settings = {
-                        "schemaVersion": 1,
-                        "passwordHash": hash_admin_password(new_password),
-                        "updatedAt": datetime.now().isoformat(timespec="seconds"),
-                    }
-                    backup_and_write(ADMIN_SETTINGS_PATH, settings, ADMIN_SETTINGS_BACKUP_DIR)
-                    revoke_all_admin_sessions()
-                    self.send_json({"ok": True, "data": {"passwordConfigured": True}})
                     return
             self.send_api_error("未找到这个管理接口。", HTTPStatus.NOT_FOUND)
         except (ValueError, TypeError, AttributeError) as error:
@@ -941,12 +945,18 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
 
 
 def main(argv: list[str] | None = None) -> None:
-    global HTTP_SERVER, UPDATE_MANAGER
+    global ALLOW_BROWSER_ADMIN_LOGIN, HTTP_SERVER, UPDATE_MANAGER
     stop_previous_frozen_instances()
     parser = argparse.ArgumentParser(description="文言实词训练本地服务")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--no-browser", action="store_true", help="启动后不自动打开浏览器")
+    parser.add_argument(
+        "--allow-browser-admin-login",
+        action="store_true",
+        help="仅源码开发调试时允许浏览器密码登录后台",
+    )
     args = parser.parse_args(argv)
+    ALLOW_BROWSER_ADMIN_LOGIN = bool(args.allow_browser_admin_login)
     set_console_window_icon()
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)

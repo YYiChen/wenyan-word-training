@@ -67,7 +67,7 @@ ADMIN_SETTINGS_BACKUP_DIR = USER_DATA_DIR / "backups"
 PID_PATH = USER_DATA_DIR / "service.pid"
 
 DEFAULT_ADMIN_PASSWORD = "pc123456"
-# 只保存检修密码的哈希，不在网页、配置接口或普通管理员密码页面中返回。
+# 只保存检修密码的哈希，不在网页、配置接口或管理员密码页面中返回。
 SUPER_ADMIN_PASSWORD_HASH = "067cca8c5ce5ecd2830907acf8b4b1be805e5d62a3e700d4b2e701b732491cba"
 ADMIN_SESSION_TTL_SECONDS = 8 * 60 * 60
 
