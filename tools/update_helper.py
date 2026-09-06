@@ -27,8 +27,30 @@ from pathlib import Path, PurePosixPath
 
 
 MANIFEST_NAME = "update-manifest.json"
-FORBIDDEN_PARTS = {"data", "release", ".git"}
-FORBIDDEN_NAME_PATTERN = ("questions", "question-reviews", "expanded_question_specs")
+FORBIDDEN_PARTS = {"data", "public-data", "release", ".git"}
+# Exact data file names that must never be installed by an update package.
+# Substring matching is deliberately NOT used here: legitimate code files
+# such as admin-questions.js or tools/server_questions.py only contain the
+# word "questions" in their names and must remain installable.
+FORBIDDEN_FILE_NAMES = {
+    "questions.json",
+    "question-reviews.json",
+    "question-bank-history.json",
+    "question_bank.json",
+    "expanded_question_specs.json",
+}
+# Snapshot retention for pre-update data backups.
+UPDATE_DATA_SNAPSHOT_DIRNAME = "user-data"
+UPDATE_BACKUP_KEEP_COUNT = 10
+UPDATE_BACKUP_KEEP_DAYS = 30
+# LocalAppData files that a new version may migrate or prune on startup.
+# The whole user-data directory is never copied: updater-runtime and
+# update-backups must not be recursively snapshotted into themselves.
+PROTECTED_LOCALAPPDATA_FILES = (
+    "leaderboard.json",
+    "answer-records.json",
+    "admin-settings.json",
+)
 DEFAULT_EXPECTED_APP = "wenyan-word-training"
 HEALTH_TIMEOUT_SECONDS = 25.0
 HEALTH_POLL_SECONDS = 0.35
@@ -114,8 +136,7 @@ def normalize_member(name: str) -> str:
         raise ValueError(f"更新包包含不安全路径：{name}")
     if path.parts[0].lower() in FORBIDDEN_PARTS:
         raise ValueError(f"更新包不得覆盖用户数据：{name}")
-    lowered = "/".join(path.parts).lower()
-    if any(token in lowered for token in FORBIDDEN_NAME_PATTERN):
+    if path.name.lower() in FORBIDDEN_FILE_NAMES:
         raise ValueError(f"更新包包含题库相关文件：{name}")
     return "/".join(path.parts)
 
@@ -248,6 +269,117 @@ def log_update_event(version: str, phase: str, message: str, *, rolled_back: boo
         pass
 
 
+def _copy_data_tree(source: Path, destination: Path) -> None:
+    """Copy a data tree without following symlinks or reparse points.
+
+    Symlinked entries are skipped entirely so an unusual user layout can
+    never turn the snapshot into a recursive copy of another disk area.
+    """
+
+    for entry in sorted(source.iterdir()):
+        if entry.is_symlink():
+            continue
+        target = destination / entry.name
+        if entry.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            _copy_data_tree(entry, target)
+        elif entry.is_file():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(entry, target)
+
+
+def snapshot_update_data(install_dir: Path, backup_root: Path) -> Path | None:
+    """Capture a pre-update snapshot of every data file startup may migrate.
+
+    Covers the whole ``install_dir/data/`` tree plus the LocalAppData files
+    a new version may prune, repair or migrate on first launch.  Returns the
+    snapshot directory, or None when there was nothing to capture.
+    """
+
+    snapshot_root = backup_root / UPDATE_DATA_SNAPSHOT_DIRNAME
+    captured = False
+    data_dir = install_dir / "data"
+    if data_dir.is_dir() and not data_dir.is_symlink():
+        _copy_data_tree(data_dir, snapshot_root / "data")
+        captured = True
+    local_root = _user_data_root()
+    for name in PROTECTED_LOCALAPPDATA_FILES:
+        source = local_root / name
+        if source.is_file() and not source.is_symlink():
+            destination = snapshot_root / "local-app-data" / name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+            captured = True
+    return snapshot_root if captured else None
+
+
+def preserve_failed_data_state(install_dir: Path, backup_root: Path) -> None:
+    """Keep the failed new version's data state before restoring the snapshot."""
+
+    try:
+        data_dir = install_dir / "data"
+        if data_dir.is_dir() and not data_dir.is_symlink():
+            _copy_data_tree(data_dir, backup_root / "failed-new-data-state" / "data")
+    except OSError:
+        pass
+
+
+def restore_update_data(snapshot_root: Path, install_dir: Path) -> bool:
+    """Restore a pre-update snapshot; True only when everything succeeded."""
+
+    ok = True
+    data_snapshot = snapshot_root / "data"
+    if data_snapshot.is_dir():
+        target = install_dir / "data"
+        try:
+            if target.is_symlink() or target.is_file():
+                target.unlink()
+            elif target.is_dir():
+                shutil.rmtree(target)
+            _copy_data_tree(data_snapshot, target)
+        except OSError:
+            ok = False
+    local_snapshot = snapshot_root / "local-app-data"
+    if local_snapshot.is_dir():
+        for name in PROTECTED_LOCALAPPDATA_FILES:
+            source = local_snapshot / name
+            if source.is_file():
+                try:
+                    shutil.copy2(source, _user_data_root() / name)
+                except OSError:
+                    ok = False
+    return ok
+
+
+def prune_update_backups(user_data_root: Path) -> None:
+    """Retain recent update backups without unbounded growth.
+
+    Keeps the newest UPDATE_BACKUP_KEEP_COUNT entries and everything younger
+    than UPDATE_BACKUP_KEEP_DAYS; older surplus entries are removed.
+    """
+
+    root = user_data_root / "update-backups"
+    try:
+        entries = [entry for entry in root.iterdir() if entry.is_dir() and not entry.is_symlink()]
+    except OSError:
+        return
+
+    def mtime(entry: Path) -> float:
+        try:
+            return entry.stat().st_mtime
+        except OSError:
+            return 0.0
+
+    entries.sort(key=mtime, reverse=True)
+    now = time.time()
+    for position, entry in enumerate(entries):
+        if position < UPDATE_BACKUP_KEEP_COUNT:
+            continue
+        if now - mtime(entry) <= UPDATE_BACKUP_KEEP_DAYS * 24 * 60 * 60:
+            continue
+        shutil.rmtree(entry, ignore_errors=True)
+
+
 @dataclass
 class UpdateTransaction:
     install_dir: Path
@@ -255,6 +387,7 @@ class UpdateTransaction:
     touched: list[tuple[Path, Path | None]]
     temporary_paths: list[Path] = field(default_factory=list)
     rolled_back: bool = False
+    data_snapshot: Path | None = None
 
     def cleanup_temporary_paths(self) -> None:
         for path in self.temporary_paths:
@@ -278,6 +411,14 @@ class UpdateTransaction:
         self.cleanup_temporary_paths()
         self.rolled_back = success
         return success
+
+    def rollback_data(self) -> bool:
+        """Restore the pre-update data snapshot; True when nothing was needed."""
+
+        if self.data_snapshot is None:
+            return True
+        preserve_failed_data_state(self.install_dir, self.backup_root)
+        return restore_update_data(self.data_snapshot, self.install_dir)
 
 
 def _validate_manifest_version(manifest: dict[str, object], expected_version: str) -> None:
@@ -329,7 +470,13 @@ def apply_update(options: argparse.Namespace) -> UpdateTransaction:
                 else:
                     touched.append((target, None))
 
-        transaction = UpdateTransaction(install_dir, backup_root, touched, temporary_paths)
+            # The old service has fully exited and the new program has not
+            # started yet: capture every data file startup may migrate before
+            # any program file is replaced.  A snapshot failure aborts the
+            # update instead of risking an unrestorable data migration.
+            data_snapshot = snapshot_update_data(install_dir, backup_root)
+
+        transaction = UpdateTransaction(install_dir, backup_root, touched, temporary_paths, data_snapshot=data_snapshot)
         for member in install_files:
             target = install_dir / Path(member)
             staged = extracted_root / Path(member)
@@ -474,6 +621,10 @@ def run_update_transaction(options: argparse.Namespace) -> bool:
             expected_app=expected_app,
             expected_version=version,
         )
+        try:
+            prune_update_backups(_user_data_root())
+        except OSError:
+            pass
         write_result(
             options.install_dir,
             version,
@@ -495,6 +646,24 @@ def run_update_transaction(options: argparse.Namespace) -> bool:
             recorded_rollback = getattr(error, "_rollback_ok", None)
             rollback_ok = bool(recorded_rollback) if recorded_rollback is not None else transaction.rollback()
             log_update_event(version, "rollback", "已恢复旧版本程序文件。", rolled_back=rollback_ok)
+        # A rollback is only complete when the pre-update data state is
+        # restored too: the new version may already have migrated local
+        # data files before its health check failed.
+        data_ok = True
+        data_snapshot_dir: Path | None = getattr(transaction, "data_snapshot", None) if transaction is not None else None
+        if transaction is not None and new_process is not None and data_snapshot_dir is not None:
+            try:
+                data_ok = bool(transaction.rollback_data())
+            except OSError as data_error:
+                data_ok = False
+                log_update_event(version, "data-rollback-failed", f"{type(data_error).__name__}: {data_error}")
+            log_update_event(
+                version,
+                "data-rollback",
+                f"数据快照恢复{'成功' if data_ok else '失败'}：{data_snapshot_dir}",
+                rolled_back=data_ok,
+            )
+        rolled_back = bool(rollback_ok and data_ok)
 
         restart_ok = False
         old_process: subprocess.Popen | None = None
@@ -520,6 +689,11 @@ def run_update_transaction(options: argparse.Namespace) -> bool:
             message = f"更新 v{version} 失败，已完成程序文件回滚。"
         else:
             message = f"更新 v{version} 失败，回滚未能完全确认。"
+        if rollback_ok and not data_ok:
+            message = (
+                f"程序更新失败，数据自动恢复未完全成功，请不要继续操作，"
+                f"并从备份恢复（{data_snapshot_dir}）。"
+            )
         if rollback_ok and not restart_ok:
             message += "旧版本自动启动未能确认，请手动启动程序。"
         write_result(
@@ -528,10 +702,10 @@ def run_update_transaction(options: argparse.Namespace) -> bool:
             False,
             message,
             previous_version=previous_version,
-            rolled_back=rollback_ok,
-            phase="rolled_back" if rollback_ok else "failed",
+            rolled_back=rolled_back,
+            phase="rolled_back" if rolled_back else "failed",
         )
-        log_update_event(version, "failed-final", message, rolled_back=rollback_ok)
+        log_update_event(version, "failed-final", message, rolled_back=rolled_back)
         return False
 
 

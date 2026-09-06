@@ -195,6 +195,6 @@ Windows 构建要求构建机能找到外部 `pyinstaller`；运行生成的 EXE
 
 - `data/questions.json` 是唯一完整题库；审查写入 `workflow.reviews`，重复处理写入 `workflow.duplicateResolutions`。
 - 学生使用 `/api/questions` 投影，管理员使用 `/api/admin-question-bank` 完整视图；不要把管理员视图直接返回学生端。
-- 普通 JSON 必须使用 `wenyan-question-import` 1.0；导入应先调用 preview，再带 `baseEtag` 调 apply。服务端负责生成新题 ID、分类重复和校验，浏览器不得自行决定合并结果。
+- 普通 JSON 必须使用 `wenyan-question-import` 1.0；导入应先调用 preview，再带 `baseEtag` 调 apply。服务端负责生成新题 ID、分类重复和校验，浏览器不得自行决定合并结果。完整题库合并若存在审查冲突（双方非 pending 且 status 不同），apply 必须附带 `reviewResolutions`（conflictId → local/incoming/skip），缺失时服务端返回 422；浏览器不得自动补齐。
 - 旧的 `/api/question-bank-import` 直写接口已停用；不要重新接回。导入应用写题库和历史时必须保留失败回滚语义，不能只写成功其中一个文件。
 - 编辑语义字段后必须让审查回到待审；`targetStart`、`reviewStatus`、`duplicateReview` 等旧字段只能出现在迁移/兼容层或历史快照中，不能写入 v4 canonical question。

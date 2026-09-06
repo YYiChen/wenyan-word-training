@@ -11,15 +11,24 @@
 5. 观察旧启动窗口优雅关闭，确认安装目录中的更新助手不是直接执行本次覆盖事务，而是从 `%LOCALAPPDATA%/WenyanQuiz/updater-runtime/` 下的随机临时目录运行。
 6. 确认 vB 启动后 `/api/health` 返回 `ok: true`、正确的 `app` 和目标 `version`；启动窗口显示目标版本和更新成功提示，后台 Header 也显示同一版本。
 7. 确认题库、排行榜、答题记录、管理员设置仍然存在，且 `update-manifest.json` 已是 vB。
+8. 确认 `%LOCALAPPDATA%/WenyanQuiz/update-backups/` 下保留了本次更新前数据快照（含完整 `data/` 复制），且旧快照按“最近 10 份或 30 天”裁剪。
 
 ## 失败回滚路径
 
 1. 使用临时 vB 包，故意让新版启动后无法通过健康检查，或把测试版启动参数指向不会返回目标版本的临时服务。
 2. 从 vA 发起更新，等待健康检查超时。
 3. 确认新版进程被停止，旧程序文件和旧 `update-manifest.json` 恢复，新增程序文件被移除。
-4. 确认旧版重新启动并通过旧版本健康检查；启动窗口显示“更新失败，已回滚”。
-5. 确认题库、排行榜、答题记录和管理员设置没有变化。
-6. 检查 `%LOCALAPPDATA%/WenyanQuiz/update-result.json` 被启动窗口消费，`update.log` 记录了目标版本、阶段、异常和回滚结果，但不含密码、token、launch ticket 或题库内容。
+4. 确认 `update-backups/<本次时间戳>/failed-new-data-state/` 保留了失败新版的数据状态，且 `user-data/` 快照已恢复到安装目录 `data/`；用更新前记录的题库 hash、题目数、各 review 状态数逐项核对一致。
+5. 确认旧版重新启动并通过旧版本健康检查；启动窗口显示“更新失败，已回滚”。
+6. 确认题库、排行榜、答题记录和管理员设置没有变化。
+7. 检查 `%LOCALAPPDATA%/WenyanQuiz/update-result.json` 被启动窗口消费，`update.log` 记录了目标版本、阶段、异常和回滚结果，但不含密码、token、launch ticket 或题库内容。
+
+## Launcher 重启服务路径
+
+1. 启动 Launcher，确认“打开学生答题页”“打开管理后台”“修改管理员密码”“退出程序”四个按钮仍存在，并新增“重启服务”按钮。
+2. 点击“重启服务”，确认弹出一次确认框；确认后状态显示“正在重启服务……”，按钮暂时禁用。
+3. 确认旧 `/api/health` 消失后，同端口出现新的 `/api/health`（ok、app、version 正确），Launcher 窗口一直保持打开，且未自动打开浏览器页面。
+4. 确认 `data/questions.json` 前后 hash 不变；旧浏览器后台会话失效后，从 Launcher 重新打开后台可正常进入。
 
 ## 补充检查
 

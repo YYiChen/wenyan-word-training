@@ -140,9 +140,12 @@ from server_questions import (
     build_import_delta,
 )
 from server_question_import import (
+    REVIEW_RESOLUTION_CHOICES,
+    UnresolvedReviewConflicts,
     build_import_preview,
     materialize_question_import,
     merge_question_bank_v4,
+    validate_review_resolutions,
 )
 from server_records import (
     configure_paths as _configure_record_services,
@@ -576,8 +579,11 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
-    def send_api_error(self, message: str, status: HTTPStatus = HTTPStatus.BAD_REQUEST) -> None:
-        self.send_json({"ok": False, "error": message}, status)
+    def send_api_error(self, message: str, status: HTTPStatus = HTTPStatus.BAD_REQUEST, extra: dict | None = None) -> None:
+        payload: dict[str, Any] = {"ok": False, "error": message}
+        if extra:
+            payload.update(extra)
+        self.send_json(payload, status)
 
     def require_admin(self) -> bool:
         token = self.headers.get("X-Wenyan-Admin-Token", "").strip()
@@ -757,12 +763,29 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
                         self.send_api_error("题库已变化，请重新预览导入。", HTTPStatus.CONFLICT)
                         return
                     package = prepare_question_import_package(raw_package, current, mode=mode)
-                    merged = merge_question_bank_v4(
-                        current,
-                        package,
-                        mode=mode,
-                        strategy=payload.get("strategy", "preserve_local"),
-                    )
+                    resolutions = payload.get("reviewResolutions", {})
+                    if resolutions is None:
+                        resolutions = {}
+                    if not isinstance(resolutions, dict) or any(
+                        not isinstance(key, str) or value not in REVIEW_RESOLUTION_CHOICES
+                        for key, value in resolutions.items()
+                    ):
+                        raise ValueError("审查冲突处理结果格式无效。")
+                    try:
+                        merged = merge_question_bank_v4(
+                            current,
+                            package,
+                            mode=mode,
+                            strategy=payload.get("strategy", "preserve_local"),
+                            review_resolutions=dict(resolutions),
+                        )
+                    except UnresolvedReviewConflicts as error:
+                        self.send_api_error(
+                            str(error),
+                            HTTPStatus.UNPROCESSABLE_ENTITY,
+                            extra={"unresolved": error.missing},
+                        )
+                        return
                     result = merged["bank"]
                     source_name = str(payload.get("sourceName", "题库导入")).replace("\\", "/").split("/")[-1].strip()[:200]
                     event = make_question_import_event(

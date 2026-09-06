@@ -122,7 +122,7 @@ finishGame -> result -> 保存答题记录 + 可选排行榜
 | `server_storage.py` | JSON 读取、先备份、临时文件 flush/fsync、`os.replace` 原子写入、备份轮转 |
 | `server_validators.py` | 题库、题目、目录、题型、计分、排行榜、solo/PK 记录、历史和审查的纯校验/归一化/身份规则 |
 | `server_questions.py` | 题库和审查文件路径配置、题库初始化、审查同步、导入历史、合并/替换撤销 |
-| `server_question_import.py` | Schema v4 导入格式识别、目录 ID 映射、外部题去重、同题库冲突分类、审查继承策略和导入预览/应用所共用的唯一合并逻辑 |
+| `server_question_import.py` | Schema v4 导入格式识别、目录 ID 映射、questionMap（导入题目 ID → 本机题目 ID）、同题库冲突分类、跨 bank 语义精确匹配、审查自动合并、阻塞式审查冲突集与人工 resolution 校验、重复处理决定合并，以及导入预览/应用共用的唯一合并逻辑 |
 | `server_records.py` | 答题记录和排行榜迁移/读取/留存、solo 结果幂等保存、PK 结果按 matchId 幂等保存 |
 | `update_service.py` | 读取 GitHub stable release、版本/资产/sha256 检查、下载和启动更新助手 |
 | `update_helper.py` | 读取更新 manifest、拒绝数据/题库/路径穿越、备份被替换代码、原子覆盖、失败回滚、重启 |
@@ -250,7 +250,17 @@ RUNTIME_PYTHON_FILES
 
 `run_server.py` 创建 `UpdateManager`。管理员后台通过 `/api/update-status`、`/api/update-check`、`/api/update-apply` 与它交互。源码工作区有未提交改动时不自动替换；下载包需匹配大小和 SHA-256。
 
-`update_helper.py` 只接受带 `update-manifest.json` 的 ZIP，拒绝 `data/`、`release/`、`.git`、题库相关文件和路径穿越；替换前将旧代码备份到用户数据目录，写入新 manifest 后启动新版并轮询本地 `/api/health`，只有应用名和目标版本均匹配才写成功结果。新版启动失败时会停止本次启动的进程、回滚程序文件并尝试重启旧版。冻结版更新助手先复制到 `%LOCALAPPDATA%/WenyanQuiz/updater-runtime/<随机目录>/` 后再运行，避免覆盖正在运行的自身。更新流程不应触及题库、排行榜、答题记录和管理员配置。
+`update_helper.py` 只接受带 `update-manifest.json` 的 ZIP，拒绝顶层 `data/`、`public-data/`、`release/`、`.git/`、明确的数据文件名和路径穿越；路径规则是精确匹配而非文件名 substring（`admin-questions.js` 等合法代码可安装），构建器生成的 source 包必须能通过同一校验。替换前将旧代码备份到用户数据目录，写入新 manifest 后启动新版并轮询本地 `/api/health`，只有应用名和目标版本均匹配才写成功结果。新版启动失败时会停止本次启动的进程、回滚程序文件并尝试重启旧版。冻结版更新助手先复制到 `%LOCALAPPDATA%/WenyanQuiz/updater-runtime/<随机目录>/` 后再运行，避免覆盖正在运行的自身。更新流程不应触及题库、排行榜、答题记录和管理员配置。
+
+更新事务流水线：Release discover → verified asset → SHA256 → temp updater（安装目录外随机副本）→ 等待父进程退出 → pre-update data snapshot（完整 `data/` + 启动可能迁移的 LocalAppData 文件，存于安装目录外）→ program backup → program replacement → new process → health verify（ok + app + target version）→ success（保留最近快照，裁剪旧备份）。
+
+失败流水线：stop new process → code rollback → data rollback（先保留失败新版数据状态，再恢复快照）→ old process restart → old health verify。只有程序与数据都恢复成功才算 `rolledBack=true`；数据未完全恢复时明确报告备份路径，不写“已安全回滚”。
+
+## 9.1 Launcher 架构
+
+Launcher 拥有：service lifecycle、student page open、admin launch ticket、password change、restart service、update result display。启动器通过 250ms 轮询消费 `update-result.json`，最长等待 60 秒以覆盖 updater 健康超时；`verifying` 中间态会保留到最终结果落盘。
+
+Restart service：后台 worker 执行“确认旧服务属于本项目 → POST shutdown → 等待 health 消失（超时则不启动新服务）→ 启动唯一新 server thread → 健康验证（app + 当前版本）”，全程非阻塞 Tk（`root.after` 回主线程），按钮禁用防并发，不自动打开浏览器，不触碰任何持久数据，失败时明确状态并允许重试；内存 admin session 失效属正常，老师从启动窗口重新打开后台。
 
 ## 10. 已知架构折中
 
@@ -264,5 +274,8 @@ RUNTIME_PYTHON_FILES
 
 运行代码在根目录的 HTML/JS/CSS、`tools/` 服务和构建脚本；测试在 `tests/` 与 `tools/test_*.js`；公开样例在 `public-data/`；`data/`、`release/`、`release-build-v*/` 和缓存目录是本机运行/构建产物，按 `.gitignore` 不属于公开代码交付面。当前本地还存在空的 `demos/` 目录，但它没有运行清单文件，也不是正式运行依赖。
 - 题库 Schema v4：`data/questions.json` 是完整教师题库的 canonical 文件，目录、题目、`bankId`、训练默认设置以及 `workflow.reviews`/`workflow.duplicateResolutions` 均在同一份 v4 文档中。旧版 `question-reviews.json` 仅用于 v3 首次升级迁移，不再作为运行时审查真相源。
+- `bankId` 只表达 stable identity lineage（同一 lineage 内 same question ID 即同一条记录）；semantic fingerprint 用于不同 lineage 间识别同一道逻辑题。`workflow` review 可通过完整题库合并迁移：pending 最低优先级自动采用对方人工结论，双方人工结论不同时进入阻塞式人工冲突处理。
 - 学生端读取 `/api/questions` 获得无教师工作流的投影；管理员读取 `/api/admin-question-bank` 获得完整题库和派生诊断。题目是否可答由服务端计算，定位异常、未通过审查和未处理重复候选均会阻止抽题。
 - 普通新增题支持 `/api/question-bank-import/preview` 与 `/api/question-bank-import/apply`；旧的 `/api/question-bank-import` 直写入口返回 410，应用前会校验题库 ETag。
+- “新增导入题库（合并）”流水线（全部在服务端 authoritative planner 内）：解析来源格式 → 目录映射 → 题目映射（questionMap）→ 语义身份判定 → 内容计划（新增/未变/内容冲突）→ 审查自动合并（pending 最低优先级）→ 阻塞式审查冲突集（确定性 conflictId + 双方整条 review + 题目展示信息）→ 用户 resolutions → ETag 重验（409）→ authoritative apply（缺 resolution 返回 422）→ 历史 delta（含 conflict 选择导致的 review 变化）。预览与应用执行同一 planner，统计完全一致。普通 `wenyan-question-import` 新增题一律 pending。“导入并替换”对完整题库是整体迁移（含 workflow），对普通模板是全新 pending lineage。
+- Question Bank merge 中 `preserve_local`/`use_imported` 只解决内容冲突；审查冲突用独立 `reviewResolutions`（local/incoming/skip），两者分离。

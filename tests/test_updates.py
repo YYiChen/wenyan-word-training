@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import inspect
+import hashlib
 import json
 import os
 import socket
 import shutil
 import sys
 import tempfile
+import threading
 import time
 import unittest
 import zipfile
@@ -423,6 +425,304 @@ class UpdateHelperTests(unittest.TestCase):
             with zipfile.ZipFile(archive_path) as archive:
                 with self.assertRaises(ValueError):
                     update_helper.read_manifest(archive)
+
+    def test_question_named_code_files_are_installable(self) -> None:
+        # Regression test: only exact data paths are forbidden.  Legitimate
+        # code files that merely contain "questions" in their names must be
+        # accepted, otherwise the builder produces packages the helper
+        # refuses to install.
+        self.assertEqual(update_helper.normalize_member("admin-questions.js"), "admin-questions.js")
+        self.assertEqual(
+            update_helper.normalize_member("tools/server_questions.py"),
+            "tools/server_questions.py",
+        )
+        self.assertEqual(
+            update_helper.normalize_member("tools/server_question_import.py"),
+            "tools/server_question_import.py",
+        )
+        self.assertEqual(
+            update_helper.normalize_member("tests/test_question_bank_v4.py"),
+            "tests/test_question_bank_v4.py",
+        )
+        with self.assertRaises(ValueError):
+            update_helper.normalize_member("data/questions.json")
+        with self.assertRaises(ValueError):
+            update_helper.normalize_member("questions.json")
+        with self.assertRaises(ValueError):
+            update_helper.normalize_member("data/question-bank-history.json")
+        with self.assertRaises(ValueError):
+            update_helper.normalize_member("public-data/questions.json")
+
+    def test_built_source_archive_passes_helper_validation(self) -> None:
+        import build_release
+
+        with tempfile.TemporaryDirectory() as temp:
+            temp_root = Path(temp)
+            output_dir = temp_root / "output"
+            output_dir.mkdir()
+            archive_path = build_release.build_source_archive(
+                ROOT, output_dir, "9.9.9", temp_root / "work",
+            )
+            self.assertTrue(archive_path.is_file())
+            with zipfile.ZipFile(archive_path) as archive:
+                files = update_helper.read_manifest(archive)
+            self.assertIn("admin-questions.js", files)
+            self.assertIn("tools/server_questions.py", files)
+            names = set(files)
+            self.assertFalse(any(name.lower() == "questions.json" for name in names))
+            self.assertFalse(any(name.split("/")[0] == "data" for name in names))
+
+    def test_pre_update_snapshot_captures_whole_data_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            install_dir = root / "install"
+            data_dir = install_dir / "data"
+            (data_dir / "backups").mkdir(parents=True)
+            (data_dir / "questions.json").write_text('{"bankId":"bank_old"}', encoding="utf-8")
+            (data_dir / "question-bank-history.json").write_text('{"events":[]}', encoding="utf-8")
+            (data_dir / "backups" / "old.json").write_text("{}", encoding="utf-8")
+            (install_dir / "app.js").write_text("old", encoding="utf-8")
+            user_data = root / "localappdata"
+            (user_data / "WenyanQuiz").mkdir(parents=True)
+            (user_data / "WenyanQuiz" / "leaderboard.json").write_text("[1]", encoding="utf-8")
+            archive_path = self.make_archive(root, {"app.js": b"new"})
+            options = self.make_options(install_dir, archive_path)
+            with patch.dict(os.environ, {"LOCALAPPDATA": str(user_data)}, clear=False):
+                transaction = update_helper.apply_update(options)
+            assert transaction.data_snapshot is not None
+            snapshot = transaction.data_snapshot
+            self.assertEqual(
+                (snapshot / "data" / "questions.json").read_text(encoding="utf-8"),
+                '{"bankId":"bank_old"}',
+            )
+            self.assertTrue((snapshot / "data" / "question-bank-history.json").is_file())
+            self.assertTrue((snapshot / "data" / "backups" / "old.json").is_file())
+            self.assertEqual(
+                (snapshot / "local-app-data" / "leaderboard.json").read_text(encoding="utf-8"),
+                "[1]",
+            )
+            # The snapshot must live outside install_dir/data (no self-copy).
+            self.assertNotEqual(snapshot.resolve().parts[:len(install_dir.resolve().parts)], install_dir.resolve().parts[:len(install_dir.resolve().parts)])
+
+    def test_data_snapshot_is_restored_after_failed_health(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            install_dir = root / "install"
+            data_dir = install_dir / "data"
+            data_dir.mkdir(parents=True)
+            original_bank = '{"bankId":"bank_old","questions":[]}'
+            (data_dir / "questions.json").write_text(original_bank, encoding="utf-8")
+            (install_dir / "app.js").write_text("old", encoding="utf-8")
+            archive_path = self.make_archive(root, {"app.js": b"new"})
+            options = self.make_options(install_dir, archive_path)
+            options.restart_executable = Path("C:/install/old.exe")
+            with patch.dict(os.environ, {"LOCALAPPDATA": str(root / "localappdata")}, clear=False):
+                with patch.object(update_helper, "wait_for_process_exit"), \
+                        patch.object(update_helper, "start_version") as start_version, \
+                        patch.object(update_helper, "wait_for_health", side_effect=TimeoutError("health timeout")), \
+                        patch.object(update_helper, "stop_started_process"), \
+                        patch.object(update_helper, "write_result") as write_result, \
+                        patch.object(update_helper, "log_update_event"):
+                    # Simulate a new version that migrates data before failing.
+                    # Only the first start migrates; the rollback restart
+                    # must see the restored data, not re-migrate it.
+                    migrated: list[bool] = []
+
+                    def migrating_start(opts):
+                        if not migrated:
+                            migrated.append(True)
+                            (install_dir / "data" / "questions.json").write_text(
+                                '{"bankId":"bank_old","schemaVersion":"9.9","migrated":true}',
+                                encoding="utf-8",
+                            )
+                        return Mock()
+
+                    start_version.side_effect = migrating_start
+                    self.assertFalse(update_helper.run_update_transaction(options))
+            self.assertEqual(
+                (install_dir / "data" / "questions.json").read_text(encoding="utf-8"),
+                original_bank,
+            )
+            self.assertTrue(write_result.call_args.kwargs["rolled_back"])
+            # The failed new data state is preserved next to the snapshot.
+            backup_roots = list((root / "localappdata" / "WenyanQuiz" / "update-backups").iterdir())
+            self.assertEqual(len(backup_roots), 1)
+            failed_state = backup_roots[0] / "failed-new-data-state" / "data" / "questions.json"
+            self.assertIn("migrated", failed_state.read_text(encoding="utf-8"))
+
+    def test_data_rollback_failure_is_not_reported_as_success(self) -> None:
+        options = Namespace(
+            parent_pid=123,
+            install_dir=Path("C:/install"),
+            archive=Path("C:/update.zip"),
+            version="1.3.1",
+            previous_version="1.3.0",
+            expected_app=update_helper.DEFAULT_EXPECTED_APP,
+            health_url="http://127.0.0.1:8000/api/health",
+            restart_executable=Path("C:/install/old.exe"),
+            restart_arg=[],
+        )
+        transaction = Mock()
+        transaction.rollback.return_value = True
+        transaction.data_snapshot = Path("C:/snapshot")
+        transaction.rollback_data.return_value = False
+        with patch.object(update_helper, "wait_for_process_exit"), \
+                patch.object(update_helper, "apply_update", return_value=transaction), \
+                patch.object(update_helper, "start_version", return_value=Mock()), \
+                patch.object(update_helper, "wait_for_health", side_effect=TimeoutError("health timeout")), \
+                patch.object(update_helper, "stop_started_process"), \
+                patch.object(update_helper, "write_result") as write_result, \
+                patch.object(update_helper, "log_update_event"):
+            self.assertFalse(update_helper.run_update_transaction(options))
+        self.assertFalse(write_result.call_args.kwargs["rolled_back"])
+        self.assertIn("数据自动恢复未完全成功", write_result.call_args.args[3])
+
+    def test_prune_update_backups_keeps_recent_and_bounded_history(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            user_data = Path(temp)
+            backup_root = user_data / "update-backups"
+            backup_root.mkdir(parents=True)
+            now = time.time()
+            for index in range(12):
+                entry = backup_root / f"1.3.0-2020010{index}-000000-000000"
+                entry.mkdir()
+                old_time = now - (40 * 24 * 60 * 60)
+                os.utime(entry, (old_time, old_time))
+            recent = backup_root / "recent"
+            recent.mkdir()
+            update_helper.prune_update_backups(user_data)
+            remaining = sorted(entry.name for entry in backup_root.iterdir())
+            # Newest 10 are kept (recent + 9); older surplus is removed.
+            self.assertIn("recent", remaining)
+            self.assertEqual(len(remaining), 10)
+
+    def test_launcher_update_result_wait_covers_health_timeout(self) -> None:
+        self.assertGreaterEqual(
+            launcher.UPDATE_RESULT_MAX_ATTEMPTS * (launcher.UPDATE_RESULT_POLL_MS / 1000.0),
+            update_helper.HEALTH_TIMEOUT_SECONDS + 10,
+        )
+
+
+class LauncherRestartTests(unittest.TestCase):
+    def make_restarter(self, **overrides):
+        calls: dict[str, list] = {"shutdown": [], "start": []}
+        release = threading.Event()
+        app_version = launcher.run_server.APP_VERSION
+        state = {"health": {"ok": True, "app": "wenyan-word-training", "version": app_version}}
+
+        def read_health():
+            release.wait(timeout=5)
+            value = state["health"]
+            if isinstance(value, Exception):
+                raise value
+            return value
+
+        def shutdown():
+            calls["shutdown"].append(True)
+            state["health"] = None
+            return True
+
+        def start():
+            calls["start"].append(True)
+            state["health"] = {"ok": True, "app": "wenyan-word-training", "version": app_version}
+
+        outcomes: list[dict] = []
+        params = {
+            "read_health": read_health,
+            "shutdown": shutdown,
+            "start": start,
+            "on_done": outcomes.append,
+            "sleep": lambda seconds: None,
+            "gone_timeout": 2.0,
+            "health_timeout": 2.0,
+            "poll_interval": 0.0,
+        }
+        params.update(overrides)
+        restarter = launcher.ServiceRestarter(**params)
+        return restarter, calls, state, outcomes, release
+
+    def test_restart_shuts_down_once_then_starts_once(self) -> None:
+        restarter, calls, _state, outcomes, release = self.make_restarter()
+        self.assertTrue(restarter.request_restart())
+        release.set()
+        deadline = time.time() + 5
+        while not outcomes and time.time() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(len(outcomes), 1)
+        self.assertTrue(outcomes[0]["ok"])
+        self.assertEqual(len(calls["shutdown"]), 1)
+        self.assertEqual(len(calls["start"]), 1)
+
+    def test_concurrent_restart_requests_start_single_worker(self) -> None:
+        restarter, calls, _state, outcomes, release = self.make_restarter()
+        self.assertTrue(restarter.request_restart())
+        self.assertFalse(restarter.request_restart())
+        self.assertFalse(restarter.request_restart())
+        release.set()
+        deadline = time.time() + 5
+        while not outcomes and time.time() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(len(calls["start"]), 1)
+
+    def test_foreign_health_is_never_shut_down(self) -> None:
+        restarter, calls, _state, outcomes, release = self.make_restarter()
+        restarter._read_health = lambda: {"ok": True, "app": "something-else"}
+        self.assertTrue(restarter.request_restart())
+        release.set()
+        deadline = time.time() + 5
+        while not outcomes and time.time() < deadline:
+            time.sleep(0.01)
+        self.assertFalse(outcomes[0]["ok"])
+        self.assertIn("其他程序", outcomes[0]["message"])
+        self.assertEqual(calls["shutdown"], [])
+        self.assertEqual(calls["start"], [])
+
+    def test_stuck_old_service_blocks_new_start(self) -> None:
+        restarter, calls, _state, outcomes, release = self.make_restarter()
+        # The old service ignores shutdown and stays alive.
+        restarter._shutdown = lambda: calls["shutdown"].append(True)
+        restarter._gone_timeout = 0.0
+        self.assertTrue(restarter.request_restart())
+        release.set()
+        deadline = time.time() + 5
+        while not outcomes and time.time() < deadline:
+            time.sleep(0.01)
+        self.assertFalse(outcomes[0]["ok"])
+        self.assertEqual(len(calls["shutdown"]), 1)
+        self.assertEqual(calls["start"], [])
+
+    def test_restart_verifies_app_and_version(self) -> None:
+        restarter, _calls, state, outcomes, release = self.make_restarter()
+        state["health"] = None
+        started: list[bool] = []
+        original_start = restarter._start
+
+        def wrong_version_start():
+            started.append(True)
+            state["health"] = {"ok": True, "app": "wenyan-word-training", "version": "0.0.0"}
+
+        restarter._start = wrong_version_start
+        self.assertTrue(restarter.request_restart())
+        release.set()
+        deadline = time.time() + 5
+        while not outcomes and time.time() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(started)
+        self.assertFalse(outcomes[0]["ok"])
+
+    def test_restart_touches_no_persistent_data(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            data_file = Path(temp) / "questions.json"
+            data_file.write_text('{"bankId":"bank_keep"}', encoding="utf-8")
+            before = hashlib.sha256(data_file.read_bytes()).hexdigest()
+            restarter, _calls, _state, outcomes, release = self.make_restarter()
+            self.assertTrue(restarter.request_restart())
+            release.set()
+            deadline = time.time() + 5
+            while not outcomes and time.time() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(outcomes[0]["ok"])
+            self.assertEqual(hashlib.sha256(data_file.read_bytes()).hexdigest(), before)
 
 
 if __name__ == "__main__":

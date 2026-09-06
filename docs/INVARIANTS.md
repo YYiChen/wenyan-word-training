@@ -22,11 +22,19 @@
 - 同一句多次出现考点词时，v4 只保存 `targetOccurrence`，展示位置由服务端/浏览器根据原句实时计算；历史答题快照中的旧 `targetStart` 不迁移删除。
 - `data/questions.json` 是 v4 完整题库的唯一真相源，快速审查写入 `workflow.reviews`；学生投影不得包含 workflow。
 - 学生可答状态由题目定位诊断、审查状态和重复题处理结果派生，不持久化 `playable` 或 `abnormal`。
-- `bankId` 保持题库 lineage，已有题目的 `id` 编辑不变；普通新增导入由服务端生成新的题目 ID，不能伪造已确认状态。
-- 题目导入必须经过服务端预览/应用并校验 ETag；不同题库的同名 ID 不得覆盖本机题目。
-- 题目核心身份至少包含文章 ID、考点词、原句和出现位置；题目内容细节用于区分同核心不同题。导入不能只按外部 ID 去重。
-- 合并导入的新题会进入候选/审查路径；`abnormal`、`candidate`、`needs_revision`、未处理的重复候选等状态不能被学生端抽取。已通过审查的题目才是正常学生题库；完整替换同一题库时按导入文件状态处理，外部题库替换会清空外部审查结论并从待审开始。未变化的同一题库题目合并审查时，已审结状态优先于待审；双方均已审结但结论不同则按导入策略选择本机或导入结论。
-- 题库变更需要通过服务端验证；题库写入会同步审查状态，导入/导出/撤销导入会保留只读历史。题库历史是只读审计记录，撤销导入通过追加事件完成，不直接删除历史。导入应用必须基于预览返回的题库 ETag，过期预览不得覆盖新版本。
+- `bankId` 保持题库 lineage，用于判断题目 ID 是否具有跨文件稳定身份意义；它不决定教师审查成果是否可以使用。普通新增导入由服务端生成新的题目 ID，不能伪造已确认状态。
+- 题目导入必须经过服务端预览/应用并校验 ETag；不同题库的同名 ID 不得覆盖本机题目。题目内容同步和审查状态同步是两个不同的问题：为了同步 review，绝不能静默修改本机已有题目内容。
+- 题目核心身份至少包含文章 ID、考点词、原句和出现位置；题目内容细节用于区分同核心不同题。导入不能只按外部 ID 去重。semantic fingerprint 用于不同 lineage 间识别 exact logical question。
+- 合并导入的新题会进入候选/审查路径；`abnormal`、`candidate`、`needs_revision`、未处理的重复候选等状态不能被学生端抽取。已通过审查的题目才是正常学生题库。
+- Pending 是唯一的“尚无人工结论”审查状态；passed/needs_revision/skipped 都是已产生的人工处理结果。内容完全一致时，pending 永远最低优先级：pending 对非 pending 自动采用对方整条 review（pending+pending → pending）。两个相同的非 pending status 不是冲突，保留本机完整 review；仅 status 不同才构成审查结论冲突，reviewedAt/note/suggestedAnswer/optionIssues 不同不算冲突，不做字段级混合。
+- 两个不同的非 pending status 是阻塞式 Review Conflict，必须人工显式选择（保留本机 / 采用导入 / 本次暂不处理）；程序不能默认任一边。有未处理冲突时 Apply 返回 422，不得自动补齐。conflictId 由本机题 ID、导入题 ID、双方 status 和语义指纹确定性生成，Apply 时服务端重新计算 planner 并校验 ID。Review Conflict 只针对内容完全一致的同一道题；内容已变化的题走内容策略（保留本机内容+本机 review，或采用导入内容+导入 review），不再进入审查冲突队列。审查冲突处理永远不改变题目内容；内容冲突处理与审查冲突处理相互独立。
+- “本次暂不处理”仅表示这次导入不处理该冲突，题目内容与本机 review 保持不变，绝不把 review 改成 skipped。
+- 普通合并（merge）必须经过服务端预览/应用并校验 ETag；不同题库的同名 ID 不得覆盖本机题目。题目内容同步和审查状态同步是两个不同的问题：为了同步 review，绝不能静默修改本机已有题目内容。
+- 完整题库 JSON（`wenyan-question-bank` 4.0，含 `workflow.reviews`/`workflow.duplicateResolutions`）可以在多台电脑之间迁移审查成果：same-bank 按稳定 ID 匹配（same ID + same semantic content 为未修改，same ID + different content 为内容修改）；different-bank 不信任对方 ID，先做目录映射，再按映射后的 semantic fingerprint 精确匹配同一道逻辑题并通过 questionMap 迁移 review，新题分配新的本机 ID 但随附其 review；same core 但细节不同只进入重复候选，不自动覆盖。合并始终保留本机 `bankId`。
+- 普通 `wenyan-question-import` 只负责导入题目内容，永远不能让题目直接 passed：新增题一律 pending，即使 JSON 中伪造 workflow/reviewStatus/review 也不能继承；它也不能补充本机已有题的 review。
+- 完整题库替换（replace）是整套取代本机：完整采用导入的 bankId、题目、workflow、目录和训练默认设置，不因 bankId 不同而清空 review；普通 question-import 替换则创建新 bankId，全部 pending 并重算重复。
+- 重复处理决定（`workflow.duplicateResolutions`）同样是教师人工审查成果：本机已有 kept/skipped 决定不被自动覆盖；本机无决定时，只有经过目录/题目映射后语义成员完全一致的 group 才能补充对方决定并经 questionMap 转成本机 ID；成员变化则不继承。
+- 题库变更需要通过服务端验证；题库写入会同步审查状态，导入/导出/撤销导入会保留只读历史。导入历史记录实际发生变化的 review（`updatedReviews` before/after）和重复处理决定（`updatedDuplicateResolutions`，旧事件缺省为空）；未被修改的本机审查不记 delta。撤销导入通过追加事件完成，不直接删除历史；若导入后相关审查又被人工修改，则 after 状态校验失败，`canRevoke` 为 false 并提示“本次导入影响的审查结果后来又被修改，无法安全撤销”。导入应用必须基于预览返回的题库 ETag，过期预览不得覆盖新版本。
 - 题目可用性由服务端派生并提供稳定 `availability.reason`：`playable`、`invalid`、`review_pending`、`review_needs_revision`、`review_skipped`、`duplicate_pending` 或 `duplicate_skipped`；学生端只依据 `playable` 抽题，后台展示不得重新推导另一套可用性规则。
 
 ## 3. 计分、限时和答题状态
@@ -77,8 +85,11 @@
 - GitHub 仓库可以有公开体验题库 `public-data/questions.json`，但完整教师题库、审查数据、导入历史、生成素材、本机排行榜、答题记录和密码配置不能公开。
 - 公开源码 ZIP、公开 Windows ZIP 和更新 ZIP 不包含 `data/`、`public-data/` 或任何题库文件；`build_release.py` 的运行清单和 `safe_relative()` 是发布边界。
 - 完整题库教师包必须是本机私发产物，不进入 Git、GitHub、公开 Release 或更新包。
-- 更新服务只替换清单中的代码文件；更新助手拒绝 `data`、`release`、`.git`、题库命名文件和路径穿越，并在替换前保留用户数据及代码备份。冻结版更新助手必须从应用安装目录外的临时副本运行。
+- 更新服务只替换清单中的代码文件；更新助手拒绝顶层 `data/`、`public-data/`、`release/`、`.git/`、明确的数据文件名（questions.json、question-reviews.json、question-bank-history.json 等）和路径穿越，并在替换前保留用户数据及代码备份。仅按文件名 substring 禁止是不允许的：`admin-questions.js`、`server_questions.py` 等合法代码文件必须可安装。冻结版更新助手必须从应用安装目录外的临时副本运行。
 - 更新成功必须同时满足程序文件替换完成、新版本启动、健康接口 `ok == true`、应用名正确且版本等于目标版本；否则必须停止本次启动的新进程、回滚程序文件并尝试重启旧版本。
+- 更新包永远不包含、也不管理教师数据目录。旧服务完全退出且新程序尚未启动时，更新助手拥有可恢复的更新前数据快照：完整 `install_dir/data/`（不跟随符号链接）加上启动可能迁移的 LocalAppData 文件（leaderboard、answer-records、admin-settings），保存在安装目录之外的 `update-backups/<timestamp>/user-data/`；成功后按“最近 10 份或 30 天”保留。
+- 更新失败回滚时，先停止新程序，恢复程序文件，同时恢复更新前数据快照（恢复前先保留失败新版的数据状态），最后重启旧程序。只有程序文件与必需的更新前数据恢复都成功，`rolledBack` 才能为 true；数据自动恢复未完全成功时必须明确报告并给出备份路径，绝不能写“已安全回滚”。
+- Launcher 重启服务只做 HTTP 服务生命周期重启：不删除、不重置题库、排行榜、答题记录、密码或配置；端口被非本项目程序占用时不得 kill/shutdown 对方；重启期间不并发第二个 worker。
 - `update-result.json` 只保存版本、前一版本、成功/回滚状态、消息和时间等结果元数据；更新排查日志不得保存密码、token、launch ticket 或题库内容。
 - 源码工作区有未提交改动时，自动更新不能覆盖本地源码。
 

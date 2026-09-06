@@ -309,6 +309,101 @@ class QuestionBankImportHttpTests(unittest.TestCase):
                     http_server.server_close()
                     thread.join(timeout=2)
 
+    def test_review_conflict_blocks_apply_until_resolved(self) -> None:
+        bank = server.empty_question_bank()
+        bank.update({
+            "bankId": "bank_classroom",
+            "questionTypes": [{"id": "context_meaning", "label": "语境释义题", "description": "语境释义"}],
+            "books": [{"id": "book-1", "label": "必修上册", "order": 1}],
+            "catalog": [{"id": "article-1", "bookId": "book-1", "unit": "一", "title": "劝学", "author": "荀子"}],
+            "questions": [{
+                "id": "qa", "number": 1, "type": "context_meaning", "articleId": "article-1",
+                "word": "利", "sentence": "金就砺则利。", "targetOccurrence": 1, "stem": "",
+                "options": [
+                    {"key": "A", "text": "锋利"}, {"key": "B", "text": "利益"},
+                    {"key": "C", "text": "有利"}, {"key": "D", "text": "顺利"},
+                ],
+                "answer": "A", "explanation": "利：锋利。",
+            }],
+        })
+        bank["workflow"] = {"reviews": {"qa": {"status": "passed"}}, "duplicateResolutions": {}}
+        bank = server.validate_question_bank_v4(bank)
+        incoming = copy.deepcopy(bank)
+        incoming["workflow"]["reviews"]["qa"] = {"status": "needs_revision", "note": "老师待改"}
+
+        with tempfile.TemporaryDirectory() as directory:
+            temp_root = Path(directory)
+            question_path = temp_root / "questions.json"
+            history_path = temp_root / "question-bank-history.json"
+            backup_dir = temp_root / "backups"
+            question_path.write_text(json.dumps(bank, ensure_ascii=False), encoding="utf-8")
+            history_path.write_text(json.dumps(server.empty_question_bank_history(), ensure_ascii=False), encoding="utf-8")
+
+            with patch.object(server, "QUESTIONS_PATH", question_path), \
+                patch.object(server, "QUESTION_BANK_HISTORY_PATH", history_path), \
+                patch.object(server, "BACKUP_DIR", backup_dir):
+                http_server = ThreadingHTTPServer(("127.0.0.1", 0), server.QuizRequestHandler)
+                thread = threading.Thread(target=http_server.serve_forever, daemon=True)
+                thread.start()
+                base_url = f"http://127.0.0.1:{http_server.server_address[1]}"
+                token = auth.create_admin_session()
+                try:
+                    status, preview_payload, _headers = self.request_json(
+                        base_url, "POST", "/api/question-bank-import/preview",
+                        {"mode": "merge", "sourceName": "老师题库.json", "package": incoming},
+                        token,
+                    )
+                    self.assertEqual(status, 200)
+                    preview = preview_payload["data"]
+                    self.assertEqual(preview["summary"]["reviewConflicts"], 1)
+                    entry = next(item for item in preview["conflicts"] if item.get("kind") == "review")
+                    for key in ("conflictId", "localQuestionId", "incomingQuestionId",
+                                "questionDisplay", "localReview", "incomingReview"):
+                        self.assertIn(key, entry)
+                    self.assertEqual(entry["questionDisplay"]["word"], "利")
+
+                    # No resolutions: apply is rejected with 422, bank untouched.
+                    status, blocked_payload, _headers = self.request_json(
+                        base_url, "POST", "/api/question-bank-import/apply",
+                        {"mode": "merge", "strategy": "preserve_local",
+                         "sourceName": "老师题库.json", "package": incoming,
+                         "baseEtag": preview["baseEtag"], "reviewResolutions": {}},
+                        token,
+                    )
+                    self.assertEqual(status, 422)
+                    self.assertIn("unresolved", blocked_payload)
+                    stored = json.loads(question_path.read_text(encoding="utf-8"))
+                    self.assertEqual(stored["workflow"]["reviews"]["qa"]["status"], "passed")
+
+                    # Resolve with incoming: review changes and history records it.
+                    status, applied_payload, _headers = self.request_json(
+                        base_url, "POST", "/api/question-bank-import/apply",
+                        {"mode": "merge", "strategy": "preserve_local",
+                         "sourceName": "老师题库.json", "package": incoming,
+                         "baseEtag": preview["baseEtag"],
+                         "reviewResolutions": {entry["conflictId"]: "incoming"}},
+                        token,
+                    )
+                    self.assertEqual(status, 200)
+                    saved = applied_payload["data"]["bank"]
+                    saved_review = next(
+                        review for qid, review in saved["workflow"]["reviews"].items()
+                    )
+                    self.assertEqual(saved_review["status"], "needs_revision")
+                    self.assertEqual(saved_review["note"], "老师待改")
+                    import_event = next(
+                        event for event in applied_payload["data"]["history"]["events"]
+                        if event["kind"] == "import"
+                    )
+                    self.assertEqual(
+                        import_event["updatedReviews"]["qa"]["after"]["status"], "needs_revision",
+                    )
+                finally:
+                    auth.revoke_admin_session(token)
+                    http_server.shutdown()
+                    http_server.server_close()
+                    thread.join(timeout=2)
+
 
 if __name__ == "__main__":
     unittest.main()

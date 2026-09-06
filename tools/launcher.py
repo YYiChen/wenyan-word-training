@@ -31,6 +31,11 @@ APP_SUBTITLE = "本地教学答题工具"
 DEFAULT_PORT = 8000
 STARTUP_TIMEOUT_SECONDS = 20.0
 HEALTH_POLL_MS = 250
+# The updater health timeout is ~25s and the parent-exit wait can be longer;
+# keep consuming the final result for at least 60s so a late success or
+# rollback is still displayed instead of silently dropped.
+UPDATE_RESULT_POLL_MS = 250
+UPDATE_RESULT_MAX_ATTEMPTS = 240
 
 COLOR_WINDOW = "#f3f8f7"
 COLOR_CARD = "#ffffff"
@@ -187,6 +192,113 @@ def choose_ui_font(root: Tk) -> str:
     return "TkDefaultFont"
 
 
+class ServiceRestarter:
+    """Testable restart state machine for the launcher HTTP service.
+
+    Only the injected ``read_health`` / ``shutdown`` / ``start`` callbacks
+    are used: a restart never touches persistent data files.  The Tk wiring
+    lives in ``LauncherApp``; ``on_done`` is invoked from the worker thread
+    and the UI must hop back to the main thread itself.
+    """
+
+    def __init__(
+        self,
+        *,
+        read_health,
+        shutdown,
+        start,
+        on_done,
+        sleep=time.sleep,
+        gone_timeout: float = 5.0,
+        health_timeout: float = 8.0,
+        poll_interval: float = 0.2,
+    ) -> None:
+        self._read_health = read_health
+        self._shutdown = shutdown
+        self._start = start
+        self._on_done = on_done
+        self._sleep = sleep
+        self._gone_timeout = gone_timeout
+        self._health_timeout = health_timeout
+        self._poll_interval = poll_interval
+        self._lock = threading.Lock()
+        self.restarting = False
+
+    def request_restart(self) -> bool:
+        """Start one restart worker; return False when a restart is running."""
+
+        with self._lock:
+            if self.restarting:
+                return False
+            self.restarting = True
+        worker = threading.Thread(target=self._worker, name="wenyan-restart", daemon=True)
+        worker.start()
+        return True
+
+    def _wait_until(self, condition, timeout: float) -> bool:
+        deadline = time.monotonic() + max(0.0, timeout)
+        while True:
+            if condition():
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            self._sleep(self._poll_interval)
+
+    def _worker(self) -> None:
+        try:
+            outcome = self._run_restart()
+        except Exception as error:  # Never leave the UI waiting silently.
+            outcome = {"ok": False, "message": f"服务重启失败：{error}", "old_alive": False}
+        finally:
+            with self._lock:
+                self.restarting = False
+        try:
+            self._on_done(outcome)
+        except Exception:
+            pass
+
+    def _run_restart(self) -> dict:
+        try:
+            payload = self._read_health()
+        except Exception:
+            payload = None
+        if payload is not None and not is_project_health(payload):
+            return {
+                "ok": False,
+                "message": "端口被其他程序占用，无法安全重启服务。",
+                "old_alive": False,
+            }
+        if payload is not None:
+            try:
+                self._shutdown()
+            except Exception:
+                pass
+            gone = self._wait_until(lambda: self._safe_health() is None, self._gone_timeout)
+            if not gone:
+                return {
+                    "ok": False,
+                    "message": "旧服务未能在规定时间内退出，未启动新服务。",
+                    "old_alive": True,
+                }
+        try:
+            self._start()
+        except Exception as error:
+            return {"ok": False, "message": f"新服务启动失败：{error}", "old_alive": False}
+        healthy = self._wait_until(
+            lambda: is_project_health(self._safe_health(), expected_version=run_server.APP_VERSION),
+            self._health_timeout,
+        )
+        if not healthy:
+            return {"ok": False, "message": "新服务启动后未能通过健康检查。", "old_alive": False}
+        return {"ok": True, "message": "服务正在运行", "old_alive": False}
+
+    def _safe_health(self):
+        try:
+            return self._read_health()
+        except Exception:
+            return None
+
+
 class LauncherApp:
     def __init__(self, root: Tk, options: argparse.Namespace) -> None:
         self.root = root
@@ -200,7 +312,15 @@ class LauncherApp:
         self._update_result: dict | None = None
         self._update_result_attempts = 0
         self._update_result_applied = False
+        self.restarting = False
+        self.allow_auto_open = True
         self._state_lock = threading.Lock()
+        self.restarter = ServiceRestarter(
+            read_health=lambda: read_health(self.port),
+            shutdown=lambda: shutdown_http_service(self.port),
+            start=self._start_restarted_server,
+            on_done=self._on_restart_done_from_worker,
+        )
         self.ui_font = choose_ui_font(root)
         self.mono_font = "Consolas"
 
@@ -210,14 +330,14 @@ class LauncherApp:
         self._build_window()
         self.root.after(80, self.start_service)
         self.root.after(HEALTH_POLL_MS, self.poll_service)
-        self.root.after(250, self.poll_update_result)
+        self.root.after(UPDATE_RESULT_POLL_MS, self.poll_update_result)
 
     def _build_window(self) -> None:
         self.root.title(APP_TITLE)
         self.root.configure(bg=COLOR_WINDOW)
         self.root.resizable(False, False)
-        self.root.minsize(600, 420)
-        self.root.geometry("600x420")
+        self.root.minsize(660, 470)
+        self.root.geometry("660x470")
         icon = application_root() / "wenyan-word-training.ico"
         if icon.is_file():
             try:
@@ -285,7 +405,7 @@ class LauncherApp:
             font=(self.ui_font, 9),
             anchor="w",
             justify="left",
-            wraplength=510,
+            wraplength=560,
         ).pack(fill=X, pady=(7, 0))
 
         address = Frame(outer, bg=COLOR_WINDOW)
@@ -328,6 +448,15 @@ class LauncherApp:
             command=self.open_password_change,
         )
         self.password_button.pack(side=LEFT, padx=(10, 0))
+
+        restart_row = Frame(outer, bg=COLOR_WINDOW)
+        restart_row.pack(fill=X, pady=(0, 13))
+        self.restart_button = self._make_button(
+            restart_row,
+            text="重启服务",
+            command=self.restart_service,
+        )
+        self.restart_button.pack(side=LEFT)
 
         footer = Frame(outer, bg=COLOR_WINDOW)
         footer.pack(fill=X, side="bottom")
@@ -398,8 +527,12 @@ class LauncherApp:
         self.student_button.configure(state=state)
         self.admin_button.configure(state=state)
         self.password_button.configure(state=state)
+        self._set_restart_button(enabled and not self.restarting)
         if self.closing:
             self.exit_button.configure(state="disabled")
+
+    def _set_restart_button(self, enabled: bool) -> None:
+        self.restart_button.configure(state="normal" if enabled else "disabled")
 
     def set_status(self, text: str, detail: str, color: str) -> None:
         self.status_text.set(text)
@@ -423,8 +556,8 @@ class LauncherApp:
         if self._update_result_applied:
             return
         self._update_result_attempts += 1
-        if self._update_result_attempts < 40:
-            self.root.after(250, self.poll_update_result)
+        if self._update_result_attempts < UPDATE_RESULT_MAX_ATTEMPTS:
+            self.root.after(UPDATE_RESULT_POLL_MS, self.poll_update_result)
 
     def start_service(self) -> None:
         if self.closing or self.starting:
@@ -454,6 +587,10 @@ class LauncherApp:
 
     def poll_service(self) -> None:
         if self.closing:
+            return
+        if self.restarting:
+            # A restart worker owns the service lifecycle; only reschedule.
+            self.root.after(HEALTH_POLL_MS, self.poll_service)
             return
         if self.server_thread is not None and not self.server_thread.is_alive():
             with self._state_lock:
@@ -486,7 +623,7 @@ class LauncherApp:
                 self.starting = False
                 self.set_buttons(True)
                 self.set_status("服务正在运行", "学生答题页已准备好，可以在浏览器中使用。", COLOR_SUCCESS)
-                if not self.options.no_browser:
+                if not self.options.no_browser and self.allow_auto_open:
                     self.open_page(student_url(self.port))
         elif self.starting:
             self.set_status("正在启动……", "正在等待本地服务响应。", COLOR_WARNING)
@@ -711,8 +848,71 @@ class LauncherApp:
         dialog.protocol("WM_DELETE_WINDOW", cancel)
         entries["current"].focus_set()
 
-    def begin_close(self, confirm: bool = True) -> None:
+    def restart_service(self) -> None:
+        """Restart the local HTTP service without exiting the launcher."""
+
+        if self.closing or self.restarting or not self.ready:
+            return
+        accepted = messagebox.askyesno(
+            APP_TITLE,
+            "重启服务会中断当前正在答题或使用后台的浏览器页面，页面可能需要刷新。是否继续？",
+            parent=self.root,
+        )
+        if not accepted:
+            return
+        self.restarting = True
+        self.ready = False
+        self.starting = False
+        self.allow_auto_open = False
+        self.set_buttons(False)
+        self.exit_button.configure(state="disabled")
+        self.set_status("正在重启服务……", "正在停止旧服务并重新启动，请稍候。", COLOR_WARNING)
+        if not self.restarter.request_restart():
+            self.restarting = False
+            self.ready = True
+            self.exit_button.configure(state="normal")
+            self.set_buttons(True)
+
+    def _start_restarted_server(self) -> None:
+        # The old service has confirmed exited; start exactly one new thread.
+        self.server_error = None
+        self.server_thread = threading.Thread(target=self._run_server, name="wenyan-server", daemon=True)
+        self.server_thread.start()
+
+    def _on_restart_done_from_worker(self, outcome: dict) -> None:
+        try:
+            self.root.after(0, lambda: self._finish_restart(outcome))
+        except Exception:
+            pass
+
+    def _finish_restart(self, outcome: dict) -> None:
         if self.closing:
+            return
+        self.restarting = False
+        self.exit_button.configure(state="normal")
+        if outcome.get("ok") is True:
+            self.ready = True
+            self.set_buttons(True)
+            self.set_status(
+                "服务正在运行",
+                "服务已重启。后台登录会话已重置，如需管理请重新从启动窗口打开后台。",
+                COLOR_SUCCESS,
+            )
+            return
+        message = str(outcome.get("message") or "服务重启失败。")
+        if outcome.get("old_alive") is True:
+            # The old service is still healthy: restore the ready state.
+            self.ready = True
+            self.set_buttons(True)
+            self.set_status("服务正在运行", f"{message}旧服务仍在运行。", COLOR_WARNING)
+        else:
+            self.ready = False
+            self.set_buttons(False)
+            self._set_restart_button(True)
+            self.set_status("服务重启失败", f"{message}可以再次点击“重启服务”重试，或退出程序。", COLOR_ERROR)
+
+    def begin_close(self, confirm: bool = True) -> None:
+        if self.closing or self.restarting:
             return
         if confirm and (self.ready or self.starting):
             accepted = messagebox.askyesno(

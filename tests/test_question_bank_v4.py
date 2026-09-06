@@ -144,7 +144,8 @@ class QuestionBankV4Tests(unittest.TestCase):
         imported_book = next(b for b in merged["bank"]["books"] if b["id"] == imported_article["bookId"])
         self.assertEqual(imported_article["title"], "师说")
         self.assertEqual(imported_book["label"], "选择性必修上册")
-        self.assertEqual(merged["bank"]["workflow"]["reviews"][imported["id"]]["status"], "pending")
+        # A new question from a full bank travels with its teacher review.
+        self.assertEqual(merged["bank"]["workflow"]["reviews"][imported["id"]]["status"], "passed")
 
     def test_external_import_preview_reports_duplicates_and_candidates(self):
         bank = sample_bank()
@@ -235,6 +236,10 @@ class QuestionBankV4Tests(unittest.TestCase):
         needs_revision = {"status": "needs_revision"}
         skipped = {"status": "skipped"}
 
+        # Pending is the lowest priority and loses automatically.  Equal
+        # non-pending conclusions are not a conflict.  Different
+        # non-pending conclusions are a blocking conflict, even with
+        # use_imported (content strategy never decides a review conflict).
         cases = [
             (pending, pending, "pending", "preserve_local", False),
             (pending, passed, "passed", "preserve_local", False),
@@ -245,44 +250,82 @@ class QuestionBankV4Tests(unittest.TestCase):
             (skipped, pending, "skipped", "preserve_local", False),
             (passed, passed, "passed", "preserve_local", False),
             (passed, needs_revision, "passed", "preserve_local", True),
-            (passed, needs_revision, "needs_revision", "use_imported", True),
+            (passed, needs_revision, "passed", "use_imported", True),
             (passed, skipped, "passed", "preserve_local", True),
-            (passed, skipped, "skipped", "use_imported", True),
+            (passed, skipped, "passed", "use_imported", True),
+            (needs_revision, passed, "needs_revision", "preserve_local", True),
             (needs_revision, skipped, "needs_revision", "preserve_local", True),
-            (needs_revision, skipped, "skipped", "use_imported", True),
+            (needs_revision, skipped, "needs_revision", "use_imported", True),
+            (skipped, passed, "skipped", "preserve_local", True),
+            (skipped, needs_revision, "skipped", "use_imported", True),
         ]
         for local, incoming, expected, strategy, conflict_expected in cases:
             with self.subTest(local=local["status"], incoming=incoming["status"], strategy=strategy):
                 merged, conflict = merge_question_review(
                     local,
                     incoming,
-                    trusted_same_bank=True,
+                    source_allows_review_transfer=True,
                     content_state="unchanged",
                     strategy=strategy,
                 )
                 self.assertEqual(merged["status"], expected)
                 self.assertEqual(conflict, conflict_expected)
 
+        # Same status with different metadata is the same conclusion.
+        local_passed = {"status": "passed", "reviewedAt": "2026-01-01", "note": ""}
+        incoming_passed = {"status": "passed", "reviewedAt": "2026-09-06", "note": "复核通过"}
         merged, conflict = merge_question_review(
-            passed, pending, trusted_same_bank=True, content_state="changed", strategy="use_imported"
+            local_passed, incoming_passed,
+            source_allows_review_transfer=True, content_state="unchanged", strategy="preserve_local",
+        )
+        self.assertEqual(merged["status"], "passed")
+        self.assertEqual(merged["reviewedAt"], "2026-01-01")
+        self.assertFalse(conflict)
+
+        local_revise = {"status": "needs_revision", "note": "A"}
+        incoming_revise = {"status": "needs_revision", "note": "B"}
+        merged, conflict = merge_question_review(
+            local_revise, incoming_revise,
+            source_allows_review_transfer=True, content_state="unchanged", strategy="preserve_local",
+        )
+        self.assertEqual(merged["status"], "needs_revision")
+        self.assertEqual(merged["note"], "A")
+        self.assertFalse(conflict)
+
+        # Whole incoming review travels with a supplemented pending review.
+        full_incoming = {
+            "status": "passed", "note": "教师备注",
+            "suggestedAnswer": None, "optionIssues": [], "reviewedAt": "2026-09-06",
+        }
+        merged, conflict = merge_question_review(
+            pending, full_incoming,
+            source_allows_review_transfer=True, content_state="unchanged", strategy="preserve_local",
+        )
+        self.assertEqual(merged["status"], "passed")
+        self.assertEqual(merged["note"], "")
+        self.assertEqual(merged["reviewedAt"], "2026-09-06")
+        self.assertFalse(conflict)
+
+        merged, conflict = merge_question_review(
+            passed, pending, source_allows_review_transfer=True, content_state="changed", strategy="use_imported"
         )
         self.assertEqual(merged["status"], "pending")
         self.assertFalse(conflict)
 
         merged, conflict = merge_question_review(
-            passed, needs_revision, trusted_same_bank=True, content_state="changed", strategy="use_imported"
+            passed, needs_revision, source_allows_review_transfer=True, content_state="changed", strategy="use_imported"
         )
         self.assertEqual(merged["status"], "needs_revision")
         self.assertFalse(conflict)
 
         merged, conflict = merge_question_review(
-            passed, passed, trusted_same_bank=False, content_state="new", strategy="use_imported"
+            passed, passed, source_allows_review_transfer=False, content_state="new", strategy="use_imported"
         )
         self.assertEqual(merged["status"], "pending")
         self.assertFalse(conflict)
 
         merged, conflict = merge_question_review(
-            pending, passed, trusted_same_bank=True, content_state="new", strategy="preserve_local"
+            pending, passed, source_allows_review_transfer=True, content_state="new", strategy="preserve_local"
         )
         self.assertEqual(merged["status"], "passed")
         self.assertFalse(conflict)

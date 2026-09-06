@@ -9,11 +9,13 @@ second merge implementation.
 from __future__ import annotations
 
 import copy
+import hashlib
 import uuid
 from typing import Any
 
 from server_validators import (
     _v4_review,
+    make_duplicate_group_id,
     make_json_etag,
     make_question_core_signature,
     make_question_semantic_fingerprint,
@@ -261,52 +263,149 @@ def _merge_types(
     return result, mapping, updates, conflicts
 
 
-def _review_conflict(left: dict[str, Any], right: dict[str, Any]) -> bool:
+def review_conflict(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    """Decide whether two reviews form a blocking manual conflict.
+
+    Only the review conclusion (``status``) is compared.  Two ``passed``
+    reviews with different ``reviewedAt``/``note`` values are the same
+    conclusion, not a conflict.  A pending side means "no manual conclusion
+    yet", which is also not a conflict: pending always loses automatically.
+    """
+    left_status = left.get("status")
+    right_status = right.get("status")
     return (
-        left.get("status") not in {"pending", None}
-        and right.get("status") not in {"pending", None}
-        and left != right
+        left_status not in {"pending", None}
+        and right_status not in {"pending", None}
+        and left_status != right_status
     )
+
+
+REVIEW_RESOLUTION_CHOICES = ("local", "incoming", "skip")
+
+
+class UnresolvedReviewConflicts(ValueError):
+    """Raised when apply is attempted with unhandled review conflicts."""
+
+    def __init__(self, missing: list[str]) -> None:
+        self.missing = list(missing)
+        super().__init__(f"还有 {len(self.missing)} 道审查冲突未处理，请处理后重新应用。")
+
+
+def make_review_conflict_id(
+    local_question_id: str,
+    incoming_question_id: str,
+    local_status: str,
+    incoming_status: str,
+    fingerprint: str,
+) -> str:
+    """Build a deterministic conflict ID stable for one ETag + one file."""
+    raw = "|".join([
+        str(local_question_id),
+        str(incoming_question_id),
+        str(local_status),
+        str(incoming_status),
+        str(fingerprint),
+    ])
+    return "review-conflict-" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def validate_review_resolutions(
+    resolutions: Any,
+    conflicts: list[dict[str, Any]],
+) -> dict[str, str]:
+    """Validate an apply-time resolution map against the recomputed conflicts."""
+    known = {item["conflictId"]: item for item in conflicts if isinstance(item, dict)}
+    if not known:
+        if resolutions in (None, {}, []):
+            return {}
+        raise ValueError("本次导入没有审查冲突需要处理。")
+    if not isinstance(resolutions, dict):
+        raise ValueError("审查冲突处理结果必须是对象。")
+    unknown = [key for key in resolutions if key not in known]
+    if unknown:
+        raise ValueError(f"存在无法识别的审查冲突：{unknown[0]}，请重新预览导入。")
+    bad = {
+        key: value for key, value in resolutions.items()
+        if value not in REVIEW_RESOLUTION_CHOICES
+    }
+    if bad:
+        raise ValueError(f"审查冲突处理选项无效：{next(iter(bad))}，请重新选择。")
+    missing = [conflict_id for conflict_id in known if conflict_id not in resolutions]
+    if missing:
+        raise UnresolvedReviewConflicts(missing)
+    return {key: str(resolutions[key]) for key in known}
 
 
 def merge_question_review(
     local_review: Any,
     incoming_review: Any,
     *,
-    trusted_same_bank: bool,
+    source_allows_review_transfer: bool | None = None,
     content_state: str,
     strategy: str,
+    trusted_same_bank: bool | None = None,
 ) -> tuple[dict[str, Any], bool]:
-    """Merge one review decision and report a real non-pending conflict.
+    """Merge one review decision; the flag reports a blocking conflict.
 
     ``content_state`` is one of ``untouched``, ``new``, ``unchanged`` or
-    ``changed``.  Only an unchanged question from the same bank may merge the
-    two review states.  External packages never import a teacher decision.
+    ``changed``.  ``source_allows_review_transfer`` is true only for a full
+    ``wenyan-question-bank`` file; an ordinary ``wenyan-question-import``
+    package never carries a trustworthy teacher decision.  It is independent
+    of ``bankId`` identity: the same rule applies to same-bank and
+    different-bank full-bank merges.
+
+    Automatic rules: pending is the lowest priority — a pending side always
+    adopts the other side's manual conclusion.  Two equal non-pending
+    conclusions are not a conflict and keep the whole local review.  Two
+    different non-pending conclusions are a *blocking* review conflict: the
+    returned review keeps the local object only as a placeholder and the
+    caller must obtain an explicit human resolution before applying.
+
+    ``strategy`` (``preserve_local``/``use_imported``) only selects which
+    *content* version to keep when content changed; the returned review then
+    follows the kept content.  Changed content never enters the review
+    conflict queue because the two reviews describe different versions.
     """
     if content_state not in {"untouched", "new", "unchanged", "changed"}:
         raise ValueError("题目内容状态无效。")
     if strategy not in {"preserve_local", "use_imported"}:
         raise ValueError("题库导入策略无效。")
+    if source_allows_review_transfer is None:
+        if trusted_same_bank is None:
+            raise ValueError("缺少审查迁移来源标识。")
+        source_allows_review_transfer = bool(trusted_same_bank)
 
     local = _v4_review(local_review)
     incoming = _v4_review(incoming_review)
     if content_state == "untouched":
         return copy.deepcopy(local), False
-    if not trusted_same_bank:
-        return copy.deepcopy(EMPTY_REVIEW), False
     if content_state == "new":
-        return copy.deepcopy(incoming), False
+        # A new question follows its own content: a full-bank newcomer keeps
+        # the teacher review that travels with it, an ordinary import always
+        # starts pending.
+        if source_allows_review_transfer:
+            return copy.deepcopy(incoming), False
+        return copy.deepcopy(EMPTY_REVIEW), False
     if content_state == "changed":
-        return copy.deepcopy(incoming if strategy == "use_imported" else local), False
+        if strategy == "preserve_local":
+            return copy.deepcopy(local), False
+        if source_allows_review_transfer:
+            return copy.deepcopy(incoming), False
+        return copy.deepcopy(EMPTY_REVIEW), False
 
-    # Same-bank, unchanged content: a non-pending decision wins over pending;
-    # if both are reviewed and disagree, the selected strategy decides.
+    # Unchanged content.  Pending is the lowest priority: a pending side
+    # automatically adopts the other side's manual conclusion.  Two equal
+    # non-pending conclusions keep the whole local review.  Two different
+    # non-pending conclusions are a blocking review conflict — no side is
+    # picked automatically, not even with ``use_imported``.
+    if not source_allows_review_transfer:
+        return copy.deepcopy(local), False
     if local["status"] == "pending" and incoming["status"] != "pending":
         return copy.deepcopy(incoming), False
-    if incoming["status"] == "pending" and local["status"] != "pending":
-        return copy.deepcopy(local), False
-    if _review_conflict(local, incoming):
-        return copy.deepcopy(incoming if strategy == "use_imported" else local), True
+    if local["status"] != "pending":
+        if incoming["status"] == "pending" or incoming["status"] == local["status"]:
+            return copy.deepcopy(local), False
+        return copy.deepcopy(local), True
     return copy.deepcopy(local), False
 
 
@@ -355,6 +454,11 @@ def _prepare_incoming_questions(
     imported_ids: set[str] = set()
     id_map: dict[str, str] = {}
     content_status: dict[str, str] = {}
+    # questionMap records every incoming question ID and the local question
+    # ID it corresponds to (exact semantic matches included).  Review transfer
+    # and duplicate-decision remapping are resolved through this map, so an
+    # exact duplicate is never silently dropped without its incoming ID.
+    question_map: dict[str, str] = {}
     foreign = not same_bank
 
     for raw in incoming["questions"]:
@@ -370,10 +474,27 @@ def _prepare_incoming_questions(
         fingerprint = make_question_semantic_fingerprint(question)
         if foreign:
             if fingerprint in accepted_fingerprints:
+                local_id = current_fingerprints.get(fingerprint)
+                if local_id is None:
+                    local_id = next(
+                        (
+                            item["id"]
+                            for item in accepted
+                            if make_question_semantic_fingerprint(item) == fingerprint
+                        ),
+                        None,
+                    )
                 skipped.append({"id": old_id, "reason": "exact_duplicate"})
+                if local_id is not None:
+                    # EXACT_MATCH_FOREIGN: same logical question under a
+                    # foreign ID; the content stays untouched, the incoming
+                    # review may supplement a local pending review.
+                    question_map[old_id] = local_id
+                    content_status.setdefault(local_id, "unchanged")
                 continue
             question["id"] = _new_id("q", used_ids)
             id_map[old_id] = question["id"]
+            question_map[old_id] = question["id"]
             question["number"] = question["number"] if question["number"] not in used_numbers else next_number
             while question["number"] in used_numbers:
                 next_number += 1
@@ -389,6 +510,19 @@ def _prepare_incoming_questions(
         if local is None:
             if fingerprint in accepted_fingerprints:
                 skipped.append({"id": old_id, "reason": "exact_duplicate"})
+                existing_id = current_fingerprints.get(fingerprint)
+                if existing_id is None:
+                    existing_id = next(
+                        (
+                            item["id"]
+                            for item in accepted
+                            if make_question_semantic_fingerprint(item) == fingerprint
+                        ),
+                        None,
+                    )
+                if existing_id is not None:
+                    question_map[old_id] = existing_id
+                    content_status.setdefault(existing_id, "unchanged")
                 continue
             if question["number"] in used_numbers:
                 question["number"] = next_number
@@ -400,12 +534,17 @@ def _prepare_incoming_questions(
             accepted.append(question)
             accepted_fingerprints.add(fingerprint)
             imported_ids.add(question["id"])
+            # NEW (same bank): the stable imported ID is kept when there is
+            # no collision; the incoming review travels with the new question.
+            question_map[old_id] = question["id"]
             content_status[question["id"]] = "new"
             continue
 
         local_fingerprint = make_question_semantic_fingerprint(local)
         if local_fingerprint == fingerprint:
+            # UNCHANGED_SAME_ID: same record, same content.
             skipped.append({"id": old_id, "reason": "unchanged"})
+            question_map[old_id] = old_id
             content_status[old_id] = "unchanged"
             continue
         if make_question_core_signature(local) == make_question_core_signature(question):
@@ -423,19 +562,115 @@ def _prepare_incoming_questions(
                 "message": f"题目“{old_id}”的文章、考点、原句或考点位置发生重大修改。",
             })
         if strategy == "use_imported":
+            # CHANGED_SAME_ID adopted by an explicit destructive choice.
             accepted.append(question)
             imported_ids.add(old_id)
             accepted_fingerprints.add(fingerprint)
+            question_map[old_id] = old_id
             content_status[old_id] = "changed"
         else:
             skipped.append({"id": old_id, "reason": "preserve_local"})
+            question_map[old_id] = old_id
 
     return accepted, skipped, {
         "conflicts": conflicts,
         "importedIds": imported_ids,
         "idMap": id_map,
         "contentStatus": content_status,
+        "questionMap": question_map,
     }
+
+
+def _merge_duplicate_resolutions(
+    current_bank: dict[str, Any],
+    incoming_bank: dict[str, Any],
+    result_questions: list[dict[str, Any]],
+    question_map: dict[str, str],
+    *,
+    source_allows_review_transfer: bool,
+) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
+    """Merge teacher duplicate decisions without harming local ones.
+
+    Duplicate decisions are manual review work too: a local ``kept`` or
+    ``skipped`` decision is never overwritten.  An incoming decision is only
+    adopted when the mapped group membership is semantically identical to the
+    current group (same member set after directory/question mapping);
+    otherwise the group stays pending.  Foreign IDs are always converted to
+    local IDs through ``question_map`` and never written into the bank.
+    """
+    current_stored = current_bank["workflow"].get("duplicateResolutions", {})
+    if not source_allows_review_transfer:
+        return copy.deepcopy(current_stored), [], {}
+
+    # Incoming stored decisions are indexed by their foreign member-ID set.
+    # A decision is only adopted when that set maps exactly onto the current
+    # local group membership; changed membership blocks the transfer.
+    incoming_decision_groups: list[tuple[set[str], dict[str, str]]] = []
+    for group in incoming_bank["workflow"].get("duplicateResolutions", {}).values():
+        if not isinstance(group, dict):
+            continue
+        member_ids = group.get("questionIds") or list((group.get("decisions") or {}).keys())
+        decisions = {
+            qid: decision
+            for qid, decision in ((group.get("decisions") or {}).items())
+            if decision in {"kept", "skipped"}
+        }
+        incoming_decision_groups.append((set(member_ids), decisions))
+
+    reverse_map: dict[str, str] = {}
+    for foreign_id, local_id in question_map.items():
+        reverse_map.setdefault(local_id, foreign_id)
+
+    result_groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+    for question in result_questions:
+        result_groups.setdefault(make_question_core_signature(question), []).append(question)
+
+    merged = copy.deepcopy(current_stored)
+    transfers: list[dict[str, Any]] = []
+    deltas: dict[str, Any] = {}
+    for core, members in result_groups.items():
+        if len(members) < 2:
+            continue
+        if len({tuple(question_detail_signature(item)) for item in members}) < 2:
+            continue
+        group_id = make_duplicate_group_id(core)
+        local_ids = [item["id"] for item in members]
+        foreign_ids = {reverse_map.get(local_id, local_id) for local_id in local_ids}
+        incoming_decisions: dict[str, str] = {}
+        for member_set, decisions in incoming_decision_groups:
+            if member_set == foreign_ids:
+                incoming_decisions = decisions
+                break
+        if not incoming_decisions:
+            continue
+        local_decisions = dict((merged.get(group_id) or {}).get("decisions", {}))
+        changed = False
+        for foreign_id, decision in incoming_decisions.items():
+            local_id = question_map.get(foreign_id, foreign_id)
+            if local_id not in local_ids:
+                continue
+            if local_decisions.get(local_id) in {"kept", "skipped"}:
+                continue
+            local_decisions[local_id] = decision
+            transfers.append({"groupId": group_id, "questionId": local_id, "decision": decision})
+            changed = True
+        if changed:
+            before = copy.deepcopy(merged.get(group_id))
+            ordered = sorted(members, key=lambda item: item["id"])
+            fingerprint = hashlib.sha256(
+                "|".join(
+                    f"{item['id']}:{make_question_semantic_fingerprint(item)}"
+                    for item in ordered
+                ).encode()
+            ).hexdigest()
+            merged[group_id] = {
+                "fingerprint": fingerprint,
+                "questionIds": local_ids,
+                "decisions": local_decisions,
+                "updatedAt": (merged.get(group_id) or {}).get("updatedAt", ""),
+            }
+            deltas[group_id] = {"before": before, "after": copy.deepcopy(merged[group_id])}
+    return merged, transfers, deltas
 
 
 def merge_question_bank_v4(
@@ -444,6 +679,7 @@ def merge_question_bank_v4(
     *,
     mode: str = "merge",
     strategy: str = "preserve_local",
+    review_resolutions: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Return a validated bank and a server-authoritative merge report."""
     current = validate_question_bank_v4(current)
@@ -455,10 +691,17 @@ def merge_question_bank_v4(
         raise ValueError("题库导入策略无效。")
 
     same_bank = not incoming_is_external and incoming["bankId"] == current["bankId"]
+    # Only a full wenyan-question-bank file may carry teacher review work.
+    # bankId decides identity lineage (stable IDs); it never decides whether
+    # a review may be transferred.
+    source_allows_review_transfer = not incoming_is_external
     if mode == "replace":
+        # Replace means "this whole bank supersedes the local one": a full
+        # bank migrates its complete workflow regardless of bankId, while an
+        # ordinary question-import always starts a fresh pending lineage.
         replacement = copy.deepcopy(incoming)
         replacement.pop("importKind", None)
-        if not same_bank:
+        if incoming_is_external:
             replacement["workflow"] = {
                 "reviews": {
                     item["id"]: copy.deepcopy(EMPTY_REVIEW)
@@ -470,6 +713,7 @@ def merge_question_bank_v4(
             "bank": validate_question_bank_v4(replacement),
             "report": {
                 "sameBank": same_bank,
+                "sourceAllowsReviewTransfer": source_allows_review_transfer,
                 "acceptedIds": [item["id"] for item in replacement["questions"]],
                 "skipped": [],
                 "directoryConflicts": [],
@@ -478,6 +722,15 @@ def merge_question_bank_v4(
                 "foreignIdCollisions": [],
                 "candidateGroupCount": 0,
                 "candidateQuestionCount": 0,
+                "questionMap": {},
+                "reviewStats": {
+                    "reviewsSupplemented": 0,
+                    "sameReviewed": 0,
+                    "bothPending": 0,
+                    "reviewConflicts": 0,
+                    "importedReviewedNewQuestions": 0,
+                },
+                "duplicateDecisionTransfers": [],
             },
         }
 
@@ -515,35 +768,100 @@ def merge_question_bank_v4(
 
     current_reviews = current["workflow"]["reviews"]
     incoming_reviews = incoming["workflow"]["reviews"]
+    question_map = question_report.get("questionMap", {})
+    local_to_foreign: dict[str, str] = {}
+    for foreign_id, local_id in question_map.items():
+        local_to_foreign.setdefault(local_id, foreign_id)
     merged_reviews: dict[str, Any] = {}
     content_status = question_report.get("contentStatus", {})
     review_conflicts: list[dict[str, Any]] = []
+    review_stats = {
+        "reviewsSupplemented": 0,
+        "sameReviewed": 0,
+        "bothPending": 0,
+        "reviewConflicts": 0,
+        "importedReviewedNewQuestions": 0,
+    }
+    catalog_by_id = {item["id"]: item for item in result.get("catalog", [])}
+    books_by_id = {item["id"]: item for item in result.get("books", [])}
     for question in result["questions"]:
         qid = question["id"]
         state = content_status.get(qid, "untouched")
+        # Foreign IDs are resolved through the question map so an exact
+        # duplicate under another bankId still finds its incoming review.
+        foreign_id = local_to_foreign.get(qid, qid)
+        incoming_review = incoming_reviews.get(foreign_id, EMPTY_REVIEW)
         merged_review, conflict = merge_question_review(
             current_reviews.get(qid, EMPTY_REVIEW),
-            incoming_reviews.get(qid, EMPTY_REVIEW),
-            trusted_same_bank=same_bank,
+            incoming_review,
+            source_allows_review_transfer=source_allows_review_transfer,
             content_state=state,
             strategy=strategy,
         )
         merged_reviews[qid] = merged_review
+        if state == "unchanged" and source_allows_review_transfer:
+            local_status = _v4_review(current_reviews.get(qid, EMPTY_REVIEW))["status"]
+            incoming_status = _v4_review(incoming_review)["status"]
+            if local_status == "pending" and incoming_status != "pending":
+                review_stats["reviewsSupplemented"] += 1
+            elif local_status != "pending" and incoming_status == "pending":
+                pass  # Local manual conclusion stays; nothing to count.
+            elif local_status == "pending":
+                review_stats["bothPending"] += 1
+            elif incoming_status == local_status:
+                review_stats["sameReviewed"] += 1
+        elif state == "new" and merged_review.get("status") not in {"pending", None}:
+            review_stats["importedReviewedNewQuestions"] += 1
         if conflict:
+            article = catalog_by_id.get(question.get("articleId"), {})
+            book = books_by_id.get(article.get("bookId"), {})
+            fingerprint = make_question_semantic_fingerprint(question)
             review_conflicts.append({
                 "kind": "review",
                 "questionId": qid,
-                "message": "同一道题的审查结论不同，已按所选导入策略处理。",
+                "conflictId": make_review_conflict_id(
+                    qid, foreign_id, local_status, incoming_status, fingerprint,
+                ),
+                "localQuestionId": qid,
+                "incomingQuestionId": foreign_id,
+                "questionDisplay": {
+                    "questionId": qid,
+                    "number": question.get("number"),
+                    "book": book.get("label", ""),
+                    "article": article.get("title", ""),
+                    "unit": article.get("unit", ""),
+                    "word": question.get("word", ""),
+                    "sentence": question.get("sentence", ""),
+                },
+                "localReview": copy.deepcopy(_v4_review(current_reviews.get(qid, EMPTY_REVIEW))),
+                "incomingReview": copy.deepcopy(_v4_review(incoming_review)),
+                "message": "这道题两边都已有人工审查，但结论不同，需要人工处理后才能完成合并。",
             })
 
+    if review_conflicts and mode == "merge":
+        # Blocking conflicts: apply requires an explicit human resolution
+        # for every conflict.  Preview calls with resolutions=None and only
+        # collects the conflict set, keeping local reviews as placeholders.
+        if review_resolutions is not None:
+            resolutions = validate_review_resolutions(review_resolutions, review_conflicts)
+            for entry in review_conflicts:
+                choice = resolutions[entry["conflictId"]]
+                if choice == "incoming":
+                    merged_reviews[entry["localQuestionId"]] = copy.deepcopy(entry["incomingReview"])
+                # "local" and "skip" both keep the whole local review unchanged.
+        review_stats["reviewConflicts"] = len(review_conflicts)
+
+    merged_duplicates, duplicate_transfers, duplicate_deltas = _merge_duplicate_resolutions(
+        current,
+        incoming,
+        result["questions"],
+        question_map,
+        source_allows_review_transfer=source_allows_review_transfer,
+    )
     result["workflow"] = {
         "reviews": merged_reviews,
-        "duplicateResolutions": copy.deepcopy(current["workflow"].get("duplicateResolutions", {})),
+        "duplicateResolutions": merged_duplicates,
     }
-    if same_bank:
-        for gid, group in incoming["workflow"].get("duplicateResolutions", {}).items():
-            if strategy == "use_imported" or gid not in result["workflow"]["duplicateResolutions"]:
-                result["workflow"]["duplicateResolutions"][gid] = copy.deepcopy(group)
     result = validate_question_bank_v4(result)
 
     candidate_groups = _duplicate_candidate_groups(result["questions"])
@@ -553,6 +871,7 @@ def merge_question_bank_v4(
     ]
     report = {
         "sameBank": same_bank,
+        "sourceAllowsReviewTransfer": source_allows_review_transfer,
         "acceptedIds": [item["id"] for item in accepted],
         "skipped": skipped,
         "questionConflicts": question_report["conflicts"],
@@ -571,6 +890,10 @@ def merge_question_bank_v4(
             item["id"] for item in incoming["questions"]
             if not same_bank and item["id"] in {q["id"] for q in current["questions"]}
         ],
+        "questionMap": question_map,
+        "reviewStats": review_stats,
+        "duplicateDecisionTransfers": duplicate_transfers,
+        "duplicateResolutionDeltas": duplicate_deltas,
     }
     return {"bank": result, "report": report}
 
@@ -645,6 +968,15 @@ def build_import_preview(
         *report["reviewConflicts"],
         *report["directoryConflicts"],
     ]
+    review_stats = dict(report.get("reviewStats", {}))
+    if mode == "replace":
+        review_stats = {
+            "reviewsSupplemented": 0,
+            "sameReviewed": 0,
+            "bothPending": 0,
+            "reviewConflicts": 0,
+            "importedReviewedNewQuestions": 0,
+        }
     summary = {
         "importedTotal": len(incoming["questions"]),
         "unchanged": unchanged,
@@ -657,11 +989,20 @@ def build_import_preview(
         "foreignIdCollisions": len(report["foreignIdCollisions"]),
         "reviewConflicts": len(report["reviewConflicts"]),
         "directoryConflicts": len(report["directoryConflicts"]),
+        # Review transfer statistics for the teacher workflow.  They come
+        # from the same authoritative plan that apply executes, so preview
+        # and apply always agree.
+        "reviewsSupplemented": review_stats.get("reviewsSupplemented", 0),
+        "sameReviewed": review_stats.get("sameReviewed", 0),
+        "bothPending": review_stats.get("bothPending", 0),
+        "importedReviewedNewQuestions": review_stats.get("importedReviewedNewQuestions", 0),
+        "duplicateDecisionTransfers": len(report.get("duplicateDecisionTransfers", [])),
     }
     return {
         "mode": mode,
         "format": incoming.get("format"),
         "sameBank": same_bank,
+        "sourceAllowsReviewTransfer": report.get("sourceAllowsReviewTransfer", False),
         "baseEtag": make_json_etag(current),
         "summary": summary,
         "reviewSummary": {

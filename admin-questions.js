@@ -7,6 +7,39 @@ const getArticle = (id) => getCatalog().find((article) => article.id === id) || 
 
 let pendingQuestionImport = null;
 let questionImportApplying = false;
+let pendingReviewConflicts = [];
+let reviewConflictResolutions = {};
+let reviewConflictViewOpen = false;
+
+// Pure review-conflict queue helpers (no DOM access; covered by Node tests).
+const REVIEW_RESOLUTION_CHOICES = ["local", "incoming", "skip"];
+const REVIEW_RESOLUTION_LABELS = { local: "保留本机结果", incoming: "采用导入结果", skip: "本次暂不处理" };
+
+const getReviewConflictsFromPreview = (preview) => {
+  const conflicts = Array.isArray(preview?.conflicts) ? preview.conflicts : [];
+  return conflicts.filter((item) => item && item.kind === "review" && typeof item.conflictId === "string");
+};
+
+const buildReviewConflictResolutions = (conflicts, choice) => {
+  const resolutions = {};
+  if (!REVIEW_RESOLUTION_CHOICES.includes(choice)) return resolutions;
+  (Array.isArray(conflicts) ? conflicts : []).forEach((item) => {
+    if (item && typeof item.conflictId === "string") resolutions[item.conflictId] = choice;
+  });
+  return resolutions;
+};
+
+const countUnresolvedReviewConflicts = (conflicts, resolutions) => {
+  const list = Array.isArray(conflicts) ? conflicts : [];
+  const current = resolutions && typeof resolutions === "object" ? resolutions : {};
+  return list.filter((item) => !item || !REVIEW_RESOLUTION_CHOICES.includes(current[item.conflictId])).length;
+};
+
+const resetReviewConflictQueue = (preview) => {
+  pendingReviewConflicts = getReviewConflictsFromPreview(preview);
+  reviewConflictResolutions = {};
+  reviewConflictViewOpen = false;
+};
 
 const getQuestionTypes = () => {
   const configured = Array.isArray(bank?.questionTypes) ? bank.questionTypes : [];
@@ -451,15 +484,26 @@ const renderQuestionImportDialog = () => {
     : "";
   const summaryRows = [
     ["导入题目", summary.importedTotal || 0],
-    ["完全相同（跳过）", summary.exactDuplicates || 0],
-    ["未发现重复的新题", summary.newQuestions || 0],
-    ["同核心细节修改", summary.modified || 0],
-    ["核心内容重大修改", summary.majorModified || 0],
+    ["自动补充审查", summary.reviewsSupplemented || 0],
+    ["双方审查一致", summary.sameReviewed || 0],
+    ["双方仍待审", summary.bothPending || 0],
+    ["审查结果冲突", summary.reviewConflicts || 0],
+    ["新增题目", summary.newQuestions || 0],
+    ["新增题中已带审查", summary.importedReviewedNewQuestions || 0],
+    ["已有题目内容不同", (summary.modified || 0) + (summary.majorModified || 0)],
     ["重复候选", summary.duplicateCandidates || 0],
     ["目录冲突", summary.directoryConflicts || 0],
-    ["审查结论冲突", summary.reviewConflicts || 0],
   ];
-  const needsStrategy = mode === "merge" && ((summary.modified || 0) + (summary.majorModified || 0) + (summary.reviewConflicts || 0) + (summary.directoryConflicts || 0) > 0);
+  const reviewConflictCount = mode === "merge" ? pendingReviewConflicts.length : 0;
+  const unresolvedCount = countUnresolvedReviewConflicts(pendingReviewConflicts, reviewConflictResolutions);
+  // Content strategy and review conflict resolution are independent: the
+  // strategy below only applies to changed question content.
+  const needsStrategy = mode === "merge" && ((summary.modified || 0) + (summary.majorModified || 0) + (summary.directoryConflicts || 0) > 0);
+  const isFullBank = preview.format === "wenyan-question-bank" || preview.sourceAllowsReviewTransfer;
+  const previewBadge = preview.sameBank ? "同一题库" : (isFullBank ? "完整题库（跨电脑）" : "外部题库");
+  if (mode === "merge" && reviewConflictViewOpen && reviewConflictCount > 0) {
+    return renderReviewConflictDialog({ mode, sourceName, reviewConflictCount, unresolvedCount });
+  }
   return `
     <div class="question-import-preview-backdrop" role="presentation">
       <section class="question-import-preview" role="dialog" aria-modal="true" aria-labelledby="question-import-preview-title">
@@ -469,21 +513,22 @@ const renderQuestionImportDialog = () => {
             <h2 id="question-import-preview-title">${mode === "replace" ? "确认替换题库" : "确认新增导入题库"}</h2>
             <p class="admin-subtitle">文件：${escapeHtml(sourceName)}。预览只读，确认应用后才会写入本机硬盘。</p>
           </div>
-          <span class="question-import-preview-badge">${preview.sameBank ? "同一题库" : "外部题库"}</span>
+          <span class="question-import-preview-badge">${previewBadge}</span>
         </div>
         <div class="question-import-summary-grid">
           ${summaryRows.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}
         </div>
         ${mode === "replace"
           ? `<p class="question-import-warning">替换会用导入文件建立新的题库版本；当前题库会先自动备份，历史记录保留。此操作只建议用于完整题库恢复。</p>`
-          : preview.sameBank
-            ? `<p class="question-import-note">同一题库导入：默认保留本机的修改题目；未变化题目的已审结论优先于待审，双方均已审结且不一致时按下方策略处理；新题按导入文件的审查状态进入流程。</p>`
+          : isFullBank
+            ? `<p class="question-import-note">本次合并不会自动覆盖已有人工审查结论。本机仍待审的相同题目会补充导入文件中的审查结果；新题随导入文件的审查状态进入流程。</p>`
             : `<p class="question-import-note">外部题库只会新增未重复题目；外部文件中的审查结论不会直接继承，新题导入后进入待审，确认通过后才会给学生抽取。</p>`}
+        ${mode === "merge" && reviewConflictCount > 0 ? `<p class="question-import-warning">发现 ${reviewConflictCount} 道题两边都已有人工审查，但结论不同，需要处理后才能完成合并。</p>` : ""}
         ${needsStrategy ? `
           <fieldset class="question-import-strategy">
             <legend>遇到已有内容变化时</legend>
             <label><input type="radio" name="question-import-strategy" value="preserve_local" ${strategy === "preserve_local" ? "checked" : ""}> 保留本机版本（推荐）</label>
-            <label><input type="radio" name="question-import-strategy" value="use_imported" ${strategy === "use_imported" ? "checked" : ""}> 使用导入版本（题目内容及审查状态以导入文件为准；导入端待审时会恢复待审）</label>
+            <label><input type="radio" name="question-import-strategy" value="use_imported" ${strategy === "use_imported" ? "checked" : ""}> 使用导入版本（仅对内容发生变化的题生效；采用后将使用导入文件中的题目内容及对应审查状态。本机原题及审查会保留在导入历史中，可在条件允许时撤销）</label>
           </fieldset>
         ` : ""}
         <div class="question-import-review-summary">
@@ -493,12 +538,68 @@ const renderQuestionImportDialog = () => {
         ${conflicts.length ? `<div class="question-import-conflicts"><h3>需要留意的变化（${conflicts.length}）</h3><ul>${conflictItems}</ul>${conflictMore}</div>` : `<div class="question-import-no-conflicts">没有发现需要人工选择的目录或题目冲突。</div>`}
         <div class="question-import-actions">
           <button class="admin-secondary" type="button" data-action="cancel-question-import">取消</button>
-          <button class="admin-primary" type="button" data-action="apply-question-import" ${questionImportApplying ? "disabled" : ""}>${questionImportApplying ? "正在写入…" : mode === "replace" ? "确认替换题库" : "确认新增导入"}</button>
+          ${mode === "merge" && reviewConflictCount > 0
+            ? `<button class="admin-primary" type="button" data-action="open-review-conflicts">处理 ${reviewConflictCount} 道审查冲突</button>`
+            : `<button class="admin-primary" type="button" data-action="apply-question-import" ${questionImportApplying ? "disabled" : ""}>${questionImportApplying ? "正在写入…" : mode === "replace" ? "确认替换题库" : "确认新增导入"}</button>`}
         </div>
       </section>
     </div>
   `;
 };
+
+const formatConflictReviewLine = (review) => {
+  if (!review || typeof review !== "object") return "—";
+  const status = REVIEW_STATUS_META?.[review.status]?.label || review.status || "—";
+  const parts = [`结论：${status}`];
+  if (review.reviewedAt) parts.push(`审查时间：${review.reviewedAt}`);
+  if (review.suggestedAnswer) parts.push(`建议答案：${review.suggestedAnswer}`);
+  if (Array.isArray(review.optionIssues) && review.optionIssues.length) parts.push(`选项问题：${review.optionIssues.join("、")}`);
+  if (review.note) parts.push(`备注：${review.note}`);
+  return parts.join("；");
+};
+
+const renderReviewConflictDialog = ({ mode, sourceName, reviewConflictCount, unresolvedCount }) => `
+    <div class="question-import-preview-backdrop" role="presentation">
+      <section class="question-import-preview review-conflict-dialog" role="dialog" aria-modal="true" aria-labelledby="review-conflict-title">
+        <div class="question-import-preview-heading">
+          <div>
+            <p class="eyebrow">审查冲突处理</p>
+            <h2 id="review-conflict-title">请选择每道冲突题的审查结论</h2>
+            <p class="admin-subtitle">文件：${escapeHtml(sourceName)}。程序不会替老师决定；未全部处理前不能完成合并。</p>
+          </div>
+          <span class="question-import-preview-badge">${unresolvedCount > 0 ? `剩余 ${unresolvedCount} 道未处理` : "已全部处理"}</span>
+        </div>
+        <div class="review-conflict-batch">
+          <button class="admin-secondary" type="button" data-action="resolve-all-review-conflicts" data-choice="local">全部保留本机</button>
+          <button class="admin-secondary" type="button" data-action="resolve-all-review-conflicts" data-choice="incoming">全部采用导入</button>
+          <button class="admin-secondary" type="button" data-action="resolve-all-review-conflicts" data-choice="skip">全部暂不处理</button>
+        </div>
+        <ol class="review-conflict-list">
+          ${pendingReviewConflicts.map((item, index) => {
+            const display = item.questionDisplay || {};
+            const choice = reviewConflictResolutions[item.conflictId];
+            const title = [display.book, display.article].filter(Boolean).join(" · ");
+            return `<li class="review-conflict-card${choice ? " is-resolved" : ""}">
+              <div class="review-conflict-heading"><strong>审查冲突 ${index + 1} / ${reviewConflictCount}</strong><span>${escapeHtml(title)}</span></div>
+              <div class="review-conflict-question">考点：${escapeHtml(display.word || "—")}　原句：${escapeHtml(display.sentence || "—")}</div>
+              <div class="review-conflict-sides">
+                <div class="review-conflict-side"><h4>本机结果</h4><p>${escapeHtml(formatConflictReviewLine(item.localReview))}</p></div>
+                <div class="review-conflict-side"><h4>导入文件结果</h4><p>${escapeHtml(formatConflictReviewLine(item.incomingReview))}</p></div>
+              </div>
+              <div class="review-conflict-choices" role="group" aria-label="审查冲突 ${index + 1} 处理方式">
+                ${REVIEW_RESOLUTION_CHOICES.map((value) => `<button type="button" class="admin-secondary${choice === value ? " is-selected" : ""}" data-action="resolve-review-conflict" data-conflict="${escapeHtml(item.conflictId)}" data-choice="${value}">${REVIEW_RESOLUTION_LABELS[value]}</button>`).join("")}
+              </div>
+            </li>`;
+          }).join("")}
+        </ol>
+        <p class="question-import-note">“本次暂不处理”仅表示这次导入不处理该冲突，题目内容与本机审查保持不变，不会把审查改成“已跳过”。</p>
+        <div class="question-import-actions">
+          <button class="admin-secondary" type="button" data-action="back-to-import-preview">返回预览</button>
+          <button class="admin-primary" type="button" data-action="apply-question-import" ${questionImportApplying || unresolvedCount > 0 ? "disabled" : ""}>${questionImportApplying ? "正在写入…" : "确认应用合并"}</button>
+        </div>
+      </section>
+    </div>
+  `;
 
 const renderQuestionTools = () => `
   <section class="admin-card question-tools" aria-label="题库文件工具">
@@ -696,6 +797,8 @@ const importBankFromFile = async (file, mode = "merge") => {
   const preview = await postJson(API.questionBankPreview, { mode, sourceName: file.name, package: imported });
   pendingQuestionImport = { mode, sourceName: file.name, package: imported, preview, strategy: "preserve_local" };
   questionImportApplying = false;
+  // A fresh preview always clears the previous conflict queue.
+  resetReviewConflictQueue(preview);
   statusMessage = "";
   render();
   return true;
@@ -704,6 +807,15 @@ const importBankFromFile = async (file, mode = "merge") => {
 const applyQuestionImportPreview = async () => {
   if (!pendingQuestionImport || questionImportApplying) return;
   const request = pendingQuestionImport;
+  if (request.mode === "merge") {
+    const unresolved = countUnresolvedReviewConflicts(pendingReviewConflicts, reviewConflictResolutions);
+    if (unresolved > 0) {
+      statusMessage = `还有 ${unresolved} 道审查冲突未处理，请处理后重新应用。`;
+      reviewConflictViewOpen = true;
+      render();
+      return;
+    }
+  }
   questionImportApplying = true;
   render();
   try {
@@ -713,6 +825,7 @@ const applyQuestionImportPreview = async () => {
       sourceName: request.sourceName,
       package: request.package,
       baseEtag: request.preview.baseEtag,
+      reviewResolutions: request.mode === "merge" ? { ...reviewConflictResolutions } : {},
     });
     if (request.mode === "replace") {
       bank = result.bank;
@@ -722,17 +835,32 @@ const applyQuestionImportPreview = async () => {
     } else {
       bank = result.bank;
       questionBankHistory = normalizeQuestionBankHistory(result.history || questionBankHistory);
-      statusMessage = `合并完成：当前题库共 ${bank.questions.length} 道题，新导入题请在快速审查中确认。`;
+      const report = result.report || {};
+      const reviewStats = report.reviewStats || {};
+      const previewSummary = request.preview?.summary || {};
+      const addedCount = previewSummary.newQuestions ?? (Array.isArray(report.acceptedIds) ? report.acceptedIds.length : 0);
+      const supplemented = reviewStats.reviewsSupplemented || 0;
+      const agreed = reviewStats.sameReviewed || 0;
+      const conflicted = reviewStats.reviewConflicts || 0;
+      const changedCount = (report.questionConflicts || []).length;
+      statusMessage = `合并完成：新增 ${addedCount} 道题；自动补充审查 ${supplemented} 道；双方审查一致 ${agreed} 道${conflicted ? `；人工处理冲突 ${conflicted} 道` : ""}${changedCount ? `；${changedCount} 道内容差异按所选策略处理` : ""}。当前题库共 ${bank.questions.length} 道题。`;
     }
     syncReviewsFromBank();
     selectedQuestionId = bank.questions[0]?.id || null;
     creatingQuestion = false;
     pendingQuestionImport = null;
+    resetReviewConflictQueue(null);
     questionImportApplying = false;
     render();
   } catch (error) {
     questionImportApplying = false;
-    statusMessage = `题库导入失败：${error instanceof Error ? error.message : "未知错误"}`;
+    const message = error instanceof Error ? error.message : "未知错误";
+    if (/已变化|重新预览/.test(message)) {
+      // Stale ETag: never reuse the old resolutions with a new preview.
+      pendingQuestionImport = null;
+      resetReviewConflictQueue(null);
+    }
+    statusMessage = `题库导入失败：${message}`;
     render();
   }
 };
@@ -740,6 +868,7 @@ const applyQuestionImportPreview = async () => {
 const cancelQuestionImportPreview = () => {
   pendingQuestionImport = null;
   questionImportApplying = false;
+  resetReviewConflictQueue(null);
   statusMessage = "";
   render();
 };
@@ -747,6 +876,30 @@ const cancelQuestionImportPreview = () => {
 const wireQuestionImportDialogEvents = () => {
   adminApp.querySelector('[data-action="cancel-question-import"]')?.addEventListener("click", cancelQuestionImportPreview);
   adminApp.querySelector('[data-action="apply-question-import"]')?.addEventListener("click", applyQuestionImportPreview);
+  adminApp.querySelector('[data-action="open-review-conflicts"]')?.addEventListener("click", () => {
+    reviewConflictViewOpen = true;
+    render();
+  });
+  adminApp.querySelector('[data-action="back-to-import-preview"]')?.addEventListener("click", () => {
+    reviewConflictViewOpen = false;
+    render();
+  });
+  adminApp.querySelectorAll('[data-action="resolve-review-conflict"]').forEach((button) => {
+    button.addEventListener("click", () => {
+      const conflictId = button.getAttribute("data-conflict");
+      const choice = button.getAttribute("data-choice");
+      if (!conflictId || !REVIEW_RESOLUTION_CHOICES.includes(choice)) return;
+      reviewConflictResolutions = { ...reviewConflictResolutions, [conflictId]: choice };
+      render();
+    });
+  });
+  adminApp.querySelectorAll('[data-action="resolve-all-review-conflicts"]').forEach((button) => {
+    button.addEventListener("click", () => {
+      const choice = button.getAttribute("data-choice");
+      reviewConflictResolutions = buildReviewConflictResolutions(pendingReviewConflicts, choice);
+      render();
+    });
+  });
   adminApp.querySelectorAll('input[name="question-import-strategy"]').forEach((input) => {
     input.addEventListener("change", () => {
       if (pendingQuestionImport) pendingQuestionImport.strategy = input.value;
