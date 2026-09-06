@@ -5,6 +5,9 @@ const getCatalog = () => Array.isArray(bank?.catalog) ? bank.catalog : [];
 const getQuestion = (id) => bank?.questions.find((question) => question.id === id) || null;
 const getArticle = (id) => getCatalog().find((article) => article.id === id) || null;
 
+let pendingQuestionImport = null;
+let questionImportApplying = false;
+
 const getQuestionTypes = () => {
   const configured = Array.isArray(bank?.questionTypes) ? bank.questionTypes : [];
   const byId = new Map(DEFAULT_QUESTION_TYPES.map((type) => [type.id, { ...type }]));
@@ -60,7 +63,7 @@ const createQuestionBankTemplate = () => {
     _templateInstructions: {
       purpose: "本文件用于制作可导入的文言实词四选一题库；下方目录中的 id 是程序识别用的稳定标识，label、title 是给人看的名称。",
       idVsName: "生成题目时，question.type 使用 questionTypes[].id，question.articleId 使用 catalog[].id；不要把中文名称直接填入这两个字段。篇目使用 catalog.bookId 关联教材册。",
-      mergeRule: "题目 ID 只是本机编号。新增导入题库（合并）按文章、考点、原句、出现位置和题目内容去重；完全重复会跳过，细节不同的同核心题会保留并标记为重复候选，导入题自动分配本机编号。",
+      mergeRule: "普通新增导入不填写题目 ID；系统按篇目 ID、考察词、原句和 targetOccurrence 判断核心，再按题目细节识别完全重复、修改和重复候选。新题自动分配本机 ID，并进入待审。",
       occurrenceRule: "targetOccurrence 从 1 开始，表示 word 在 sentence 中第几次出现；不填写 targetStart，后台根据原句和考点实时定位。",
     },
     format: "wenyan-question-import",
@@ -98,7 +101,7 @@ const createQuestionBankImportGuide = () => `${QUESTION_BANK_FORMAT_GUIDE}
 | --- | --- | --- |
 ${getQuestionTypes().map((type) => `| ${type.id} | ${type.label} | ${type.description || "暂无说明"} |`).join("\n")}
 
-## 当前教材册目录（请用教材册 ID 管理，题目的 volume 使用名称）
+## 当前教材册目录（题目通过 catalog.bookId 间接归类，不要填写教材册名称）
 
 | 教材册 ID | 教材册名称 | 排序 |
 | --- | --- | ---: |
@@ -112,7 +115,7 @@ ${getCatalog().map((article) => `| ${article.id} | ${article.title} | ${article.
 
 ## 可直接复制的 JSON 模版
 
-下面的代码块是一个可导入的最小模版。请保留题型、教材册和篇目目录中的稳定 ID；合并导入时题目的 \`id\` 只是临时本机编号，系统会按内容判断重复并自动为新增题目分配本机编号。
+下面的代码块是一个可导入的最小模版。请保留题型、教材册和篇目目录中的稳定 ID；普通新增导入不填写题目 \`id\`，系统会按内容判断重复并为新增题目分配本机编号。
 
 \`\`\`json
 ${JSON.stringify(createQuestionBankTemplate(), null, 2)}
@@ -433,6 +436,68 @@ const renderQuestionBankHistory = () => `
   </section>
 `;
 
+const renderQuestionImportDialog = () => {
+  if (!pendingQuestionImport) return "";
+  const { mode, sourceName, preview, strategy } = pendingQuestionImport;
+  const summary = preview.summary || {};
+  const conflicts = Array.isArray(preview.conflicts) ? preview.conflicts : [];
+  const conflictLimit = 80;
+  const conflictItems = conflicts.slice(0, conflictLimit).map((item) => {
+    const subject = item.questionId || item.id || item.kind || "目录";
+    return `<li><strong>${escapeHtml(subject)}</strong>：${escapeHtml(item.message || "需要关注的变化")}</li>`;
+  }).join("");
+  const conflictMore = conflicts.length > conflictLimit
+    ? `<p class="question-import-more">另有 ${conflicts.length - conflictLimit} 项变化未展开，请应用前先核对导入文件。</p>`
+    : "";
+  const summaryRows = [
+    ["导入题目", summary.importedTotal || 0],
+    ["完全相同（跳过）", summary.exactDuplicates || 0],
+    ["未发现重复的新题", summary.newQuestions || 0],
+    ["同核心细节修改", summary.modified || 0],
+    ["核心内容重大修改", summary.majorModified || 0],
+    ["重复候选", summary.duplicateCandidates || 0],
+    ["目录冲突", summary.directoryConflicts || 0],
+    ["审查结论冲突", summary.reviewConflicts || 0],
+  ];
+  const needsStrategy = mode === "merge" && ((summary.modified || 0) + (summary.majorModified || 0) + (summary.reviewConflicts || 0) + (summary.directoryConflicts || 0) > 0);
+  return `
+    <div class="question-import-preview-backdrop" role="presentation">
+      <section class="question-import-preview" role="dialog" aria-modal="true" aria-labelledby="question-import-preview-title">
+        <div class="question-import-preview-heading">
+          <div>
+            <p class="eyebrow">导入前检查</p>
+            <h2 id="question-import-preview-title">${mode === "replace" ? "确认替换题库" : "确认新增导入题库"}</h2>
+            <p class="admin-subtitle">文件：${escapeHtml(sourceName)}。预览只读，确认应用后才会写入本机硬盘。</p>
+          </div>
+          <span class="question-import-preview-badge">${preview.sameBank ? "同一题库" : "外部题库"}</span>
+        </div>
+        <div class="question-import-summary-grid">
+          ${summaryRows.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}
+        </div>
+        ${mode === "replace"
+          ? `<p class="question-import-warning">替换会用导入文件建立新的题库版本；当前题库会先自动备份，历史记录保留。此操作只建议用于完整题库恢复。</p>`
+          : `<p class="question-import-note">默认保留本机已有题目和审查结论，只新增未重复题目；新题导入后会进入待审，确认通过后才会给学生抽取。</p>`}
+        ${needsStrategy ? `
+          <fieldset class="question-import-strategy">
+            <legend>遇到已有内容变化时</legend>
+            <label><input type="radio" name="question-import-strategy" value="preserve_local" ${strategy === "preserve_local" ? "checked" : ""}> 保留本机版本（推荐）</label>
+            <label><input type="radio" name="question-import-strategy" value="use_imported" ${strategy === "use_imported" ? "checked" : ""}> 使用导入版本（会重置相关题目的审查）</label>
+          </fieldset>
+        ` : ""}
+        <div class="question-import-review-summary">
+          <span>审查状态：本机待审 ${preview.reviewSummary?.current?.pending || 0}，导入待审 ${preview.reviewSummary?.imported?.pending || 0}</span>
+          <span>应用后的重复候选题需要在“快速审查”中处理</span>
+        </div>
+        ${conflicts.length ? `<div class="question-import-conflicts"><h3>需要留意的变化（${conflicts.length}）</h3><ul>${conflictItems}</ul>${conflictMore}</div>` : `<div class="question-import-no-conflicts">没有发现需要人工选择的目录或题目冲突。</div>`}
+        <div class="question-import-actions">
+          <button class="admin-secondary" type="button" data-action="cancel-question-import">取消</button>
+          <button class="admin-primary" type="button" data-action="apply-question-import" ${questionImportApplying ? "disabled" : ""}>${questionImportApplying ? "正在写入…" : mode === "replace" ? "确认替换题库" : "确认新增导入"}</button>
+        </div>
+      </section>
+    </div>
+  `;
+};
+
 const renderQuestionTools = () => `
   <section class="admin-card question-tools" aria-label="题库文件工具">
     <div class="question-tools-copy">
@@ -454,23 +519,23 @@ const renderQuestionTab = () => `${renderQuestionTools()}${showQuestionBankHisto
 
 const downloadBank = async () => {
   const filename = "文言实词题库-当前完整题库.json";
-  const blob = new Blob([JSON.stringify(bank, null, 2)], { type: "application/json;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
   try {
-    questionBankHistory = normalizeQuestionBankHistory(await postJson(API.questionBankHistory, {
-      kind: "export",
-      format: "json",
-      sourceName: filename,
-      questionCount: bank.questions.length,
-    }));
+    const result = await postJson(API.questionBankExport, { sourceName: filename });
+    const exportedBank = result?.bank;
+    if (!exportedBank || !Array.isArray(exportedBank.questions)) {
+      throw new Error("服务器返回的完整题库格式无效。");
+    }
+    const blob = new Blob([JSON.stringify(exportedBank, null, 2)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+    questionBankHistory = normalizeQuestionBankHistory(result.history || questionBankHistory);
     statusMessage = "当前题库已导出，导出记录已保存。";
   } catch (error) {
-    statusMessage = `题库文件已下载，但导出历史记录保存失败：${error instanceof Error ? error.message : "未知错误"}`;
+    statusMessage = `题库导出失败：${error instanceof Error ? error.message : "未知错误"}`;
   }
   render();
 };
@@ -492,6 +557,9 @@ const downloadQuestionBankImportGuide = () => downloadTextFile(
 );
 
 const validateImportedBankShape = (imported) => {
+  // Legacy browser-side shape/merge helpers are retained for compatibility
+  // with older cached admin pages. New imports always use server preview/apply
+  // and the authoritative planner; do not call these helpers for new code.
   if (!imported || typeof imported !== "object" || !Array.isArray(imported.questions)) {
     throw new Error("导入失败：文件必须是包含 questions 数组的题库 JSON。");
   }
@@ -620,32 +688,67 @@ const importBankFromFile = async (file, mode = "merge") => {
   } catch (error) {
     throw new Error(`JSON 文件无法读取：${error instanceof Error ? error.message : "格式错误"}`);
   }
-  validateImportedBankShape(imported);
+  if (!imported || typeof imported !== "object" || Array.isArray(imported)) {
+    throw new Error("导入失败：文件必须是 JSON 对象。");
+  }
   const preview = await postJson(API.questionBankPreview, { mode, sourceName: file.name, package: imported });
-  const summary = preview.summary || {};
-  const previewText = mode === "replace"
-    ? `确定替换为“${file.name}”吗？当前题库会先备份。导入 ${summary.importedTotal || 0} 道题。`
-    : `确定合并“${file.name}”吗？新增 ${summary.newQuestions || 0} 道，完全相同 ${summary.exactDuplicates || 0} 道，细节修改 ${summary.modified || 0} 道，重大修改 ${summary.majorModified || 0} 道。`;
-  if (!window.confirm(previewText)) return false;
-  let strategy = "preserve_local";
-  if (mode === "merge" && ((summary.modified || 0) + (summary.majorModified || 0) > 0)) {
-    strategy = window.confirm("预览发现已有题目发生修改。点击“确定”使用导入版本，点击“取消”保留本机版本并只合并新增题目。") ? "use_imported" : "preserve_local";
-  }
-  const result = await postJson(API.questionBankApply, { mode, strategy, sourceName: file.name, package: imported, baseEtag: preview.baseEtag });
-  if (mode === "replace") {
-    bank = result.bank;
-    questionBankHistory = normalizeQuestionBankHistory(result.history || questionBankHistory);
-    const abnormalCount = getAbnormalQuestionCount(bank.questions);
-    statusMessage = `已替换为 ${bank.questions.length} 道题${abnormalCount ? `；${abnormalCount} 道划线异常题已标记并跳过答题` : ""}`;
-  } else {
-    bank = result.bank;
-    questionBankHistory = normalizeQuestionBankHistory(result.history || questionBankHistory);
-    statusMessage = `合并完成：当前题库共 ${bank.questions.length} 道题，新导入题请在快速审查中确认。`;
-  }
-  selectedQuestionId = bank.questions[0]?.id || null;
-  creatingQuestion = false;
+  pendingQuestionImport = { mode, sourceName: file.name, package: imported, preview, strategy: "preserve_local" };
+  questionImportApplying = false;
+  statusMessage = "";
   render();
   return true;
+};
+
+const applyQuestionImportPreview = async () => {
+  if (!pendingQuestionImport || questionImportApplying) return;
+  const request = pendingQuestionImport;
+  questionImportApplying = true;
+  render();
+  try {
+    const result = await postJson(API.questionBankApply, {
+      mode: request.mode,
+      strategy: request.strategy,
+      sourceName: request.sourceName,
+      package: request.package,
+      baseEtag: request.preview.baseEtag,
+    });
+    if (request.mode === "replace") {
+      bank = result.bank;
+      questionBankHistory = normalizeQuestionBankHistory(result.history || questionBankHistory);
+      const abnormalCount = getAbnormalQuestionCount(bank.questions);
+      statusMessage = `已替换为 ${bank.questions.length} 道题${abnormalCount ? `；${abnormalCount} 道划线异常题已标记并跳过答题` : ""}`;
+    } else {
+      bank = result.bank;
+      questionBankHistory = normalizeQuestionBankHistory(result.history || questionBankHistory);
+      statusMessage = `合并完成：当前题库共 ${bank.questions.length} 道题，新导入题请在快速审查中确认。`;
+    }
+    selectedQuestionId = bank.questions[0]?.id || null;
+    creatingQuestion = false;
+    pendingQuestionImport = null;
+    questionImportApplying = false;
+    render();
+  } catch (error) {
+    questionImportApplying = false;
+    statusMessage = `题库导入失败：${error instanceof Error ? error.message : "未知错误"}`;
+    render();
+  }
+};
+
+const cancelQuestionImportPreview = () => {
+  pendingQuestionImport = null;
+  questionImportApplying = false;
+  statusMessage = "";
+  render();
+};
+
+const wireQuestionImportDialogEvents = () => {
+  adminApp.querySelector('[data-action="cancel-question-import"]')?.addEventListener("click", cancelQuestionImportPreview);
+  adminApp.querySelector('[data-action="apply-question-import"]')?.addEventListener("click", applyQuestionImportPreview);
+  adminApp.querySelectorAll('input[name="question-import-strategy"]').forEach((input) => {
+    input.addEventListener("change", () => {
+      if (pendingQuestionImport) pendingQuestionImport.strategy = input.value;
+    });
+  });
 };
 
 const revokeQuestionBankImport = async (eventId) => {
@@ -983,19 +1086,10 @@ const wireQuestionEvents = () => {
         activeImportButton.textContent = "正在导入…";
       }
       try {
-        const imported = await importBankFromFile(file, importMode);
-        if (!imported) {
-          if (activeImportButton) {
-            activeImportButton.disabled = false;
-            activeImportButton.textContent = importMode === "replace" ? "导入并替换（谨慎）" : "新增导入题库（合并）";
-          }
-        }
+        await importBankFromFile(file, importMode);
       } catch (error) {
-        window.alert(error instanceof Error ? error.message : "导入题库失败。");
-        if (activeImportButton) {
-          activeImportButton.disabled = false;
-          activeImportButton.textContent = importMode === "replace" ? "导入并替换（谨慎）" : "新增导入题库（合并）";
-        }
+        statusMessage = `题库导入预览失败：${error instanceof Error ? error.message : "未知错误"}`;
+        render();
       } finally {
         fileInput.value = "";
       }

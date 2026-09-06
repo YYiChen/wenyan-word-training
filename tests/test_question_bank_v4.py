@@ -9,12 +9,17 @@ from server_validators import (
     empty_question_bank,
     make_question_semantic_fingerprint,
     question_bank_diagnostics,
+    admin_question_bank_view,
     student_question_bank_view,
     validate_question_bank_v4,
     validate_question_import,
     question_import_preview,
     remap_foreign_bank_questions,
     drop_exact_duplicates,
+)
+from server_question_import import (
+    build_import_preview,
+    merge_question_bank_v4,
 )
 
 
@@ -45,8 +50,19 @@ class QuestionBankV4Tests(unittest.TestCase):
         self.assertNotIn("workflow", view)
         self.assertNotIn("reviewStatus", view["questions"][0])
         self.assertNotIn("duplicateReview", view["questions"][0])
+        self.assertNotIn("suggestedAnswer", view["questions"][0])
+        self.assertNotIn("optionIssues", view["questions"][0])
+        self.assertNotIn("reviewedAt", view["questions"][0])
         self.assertTrue(view["questions"][0]["availability"]["playable"])
         self.assertEqual(view["questions"][0]["volume"], "必修上册")
+
+    def test_admin_view_marks_invalid_target_as_abnormal_without_persisting_legacy_status(self):
+        bank = sample_bank()
+        bank["questions"][0]["word"] = "不存在"
+        admin_view = admin_question_bank_view(validate_question_bank_v4(bank))
+        self.assertEqual(admin_view["questions"][0]["reviewStatus"], "abnormal")
+        self.assertEqual(admin_view["questions"][0]["availability"]["playable"], False)
+        self.assertNotIn("reviewStatus", validate_question_bank_v4(bank)["questions"][0])
 
     def test_invalid_target_is_stored_but_blocked(self):
         bank = sample_bank()
@@ -98,6 +114,69 @@ class QuestionBankV4Tests(unittest.TestCase):
     def test_foreign_exact_duplicate_is_dropped_before_id_remap(self):
         bank = sample_bank(); foreign = copy.deepcopy(bank); foreign["bankId"] = "bank_foreign"
         self.assertEqual(drop_exact_duplicates(foreign, bank)["questions"], [])
+
+    def test_authoritative_foreign_merge_remaps_colliding_directory_ids(self):
+        bank = sample_bank()
+        foreign = copy.deepcopy(bank)
+        foreign["bankId"] = "bank_foreign"
+        foreign["books"][0]["label"] = "选择性必修上册"
+        foreign["catalog"][0]["title"] = "师说"
+        foreign["questions"][0]["sentence"] = "师者，所以传道受业解惑也。"
+        foreign["questions"][0]["word"] = "师"
+        foreign["questions"][0]["options"] = [
+            {"key": "A", "text": "老师"}, {"key": "B", "text": "军队"},
+            {"key": "C", "text": "学习"}, {"key": "D", "text": "师父"},
+        ]
+        foreign["questions"][0]["answer"] = "A"
+        foreign["questions"][0]["explanation"] = "师：老师。"
+        foreign["workflow"]["reviews"] = {"legacy-1": {"status": "passed"}}
+
+        merged = merge_question_bank_v4(bank, foreign, mode="merge")
+        imported = [q for q in merged["bank"]["questions"] if q["id"] != "legacy-1"][0]
+        self.assertNotEqual(imported["id"], "legacy-1")
+        self.assertNotEqual(imported["articleId"], "article-1")
+        imported_article = next(a for a in merged["bank"]["catalog"] if a["id"] == imported["articleId"])
+        imported_book = next(b for b in merged["bank"]["books"] if b["id"] == imported_article["bookId"])
+        self.assertEqual(imported_article["title"], "师说")
+        self.assertEqual(imported_book["label"], "选择性必修上册")
+        self.assertEqual(merged["bank"]["workflow"]["reviews"][imported["id"]]["status"], "pending")
+
+    def test_external_import_preview_reports_duplicates_and_candidates(self):
+        bank = sample_bank()
+        exact = copy.deepcopy(bank)
+        exact["bankId"] = "bank-external"
+        exact["importKind"] = "external"
+        preview = build_import_preview(bank, exact, mode="merge")
+        self.assertFalse(preview["sameBank"])
+        self.assertEqual(preview["summary"]["exactDuplicates"], 1)
+
+        candidate = copy.deepcopy(bank)
+        candidate["bankId"] = "bank-external"
+        candidate["importKind"] = "external"
+        candidate["questions"][0]["explanation"] = "利：锋利，形容词。"
+        candidate_preview = build_import_preview(bank, candidate, mode="merge")
+        self.assertEqual(candidate_preview["summary"]["newQuestions"], 1)
+        self.assertEqual(candidate_preview["summary"]["duplicateCandidates"], 1)
+
+    def test_same_bank_strategy_controls_question_and_review_inheritance(self):
+        bank = sample_bank()
+        incoming = copy.deepcopy(bank)
+        incoming["questions"][0]["explanation"] = "利：锋利，用来形容刀剑。"
+        incoming["workflow"]["reviews"]["legacy-1"] = {"status": "passed", "reviewedAt": "2026-09-06"}
+
+        preserved = merge_question_bank_v4(bank, incoming, mode="merge", strategy="preserve_local")["bank"]
+        self.assertEqual(preserved["questions"][0]["explanation"], bank["questions"][0]["explanation"])
+        self.assertEqual(preserved["workflow"]["reviews"]["legacy-1"]["status"], "passed")
+
+        adopted = merge_question_bank_v4(bank, incoming, mode="merge", strategy="use_imported")["bank"]
+        self.assertEqual(adopted["questions"][0]["explanation"], incoming["questions"][0]["explanation"])
+        self.assertEqual(adopted["workflow"]["reviews"]["legacy-1"]["status"], "passed")
+
+    def test_canonical_bank_requires_stable_question_ids(self):
+        bank = sample_bank()
+        del bank["questions"][0]["id"]
+        with self.assertRaises(ValueError):
+            validate_question_bank_v4(bank)
 
 
 if __name__ == "__main__":

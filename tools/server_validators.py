@@ -7,7 +7,6 @@ import hashlib
 import json
 import time
 import uuid
-import uuid
 from typing import Any
 
 from server_config import (
@@ -913,6 +912,43 @@ def _validate_history_count(value: Any, label: str) -> int:
         raise ValueError(f"题库历史记录的 {label} 必须是非负整数。")
     return value
 
+
+def _validate_history_delta(value: Any, label: str) -> dict[str, dict[str, Any]]:
+    if not isinstance(value, dict):
+        raise ValueError(f"题库历史记录的 {label} 必须是对象。")
+    clean: dict[str, dict[str, Any]] = {}
+    for item_id, delta in value.items():
+        if not isinstance(item_id, str) or not item_id.strip() or not isinstance(delta, dict):
+            raise ValueError(f"题库历史记录的 {label} 包含无效变更项。")
+        if not isinstance(delta.get("before"), dict) or not isinstance(delta.get("after"), dict):
+            raise ValueError(f"题库历史记录的 {label} 必须包含 before 和 after 快照。")
+        clean[item_id.strip()[:120]] = {
+            "before": copy.deepcopy(delta["before"]),
+            "after": copy.deepcopy(delta["after"]),
+        }
+        if "afterFingerprint" in delta:
+            fingerprint = str(delta.get("afterFingerprint", "")).strip()
+            if not fingerprint:
+                raise ValueError(f"题库历史记录的 {label} 缺少 afterFingerprint。")
+            clean[item_id.strip()[:120]]["afterFingerprint"] = fingerprint[:200]
+    return clean
+
+
+def _validate_added_directory_snapshots(value: Any) -> dict[str, dict[str, dict[str, Any]]]:
+    if not isinstance(value, dict):
+        raise ValueError("题库历史记录的新增目录快照必须是对象。")
+    clean: dict[str, dict[str, dict[str, Any]]] = {}
+    for collection in ("books", "catalog", "questionTypes"):
+        raw_collection = value.get(collection, {})
+        if not isinstance(raw_collection, dict):
+            raise ValueError("题库历史记录的新增目录快照格式无效。")
+        clean[collection] = {}
+        for item_id, item in raw_collection.items():
+            if not isinstance(item_id, str) or not item_id.strip() or not isinstance(item, dict):
+                raise ValueError("题库历史记录的新增目录快照包含无效项。")
+            clean[collection][item_id.strip()[:120]] = copy.deepcopy(item)
+    return clean
+
 def validate_question_bank_history(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("题库历史记录必须是对象。")
@@ -962,9 +998,23 @@ def validate_question_bank_history(payload: Any) -> dict[str, Any]:
                 "addedTypeIds": _validate_history_string_list(raw_event.get("addedTypeIds", []), "新增题型 ID"),
                 "beforeHash": str(raw_event.get("beforeHash", "")).strip()[:200],
                 "afterHash": str(raw_event.get("afterHash", "")).strip()[:200],
-                "updatedQuestions": copy.deepcopy(raw_event.get("updatedQuestions", {})) if isinstance(raw_event.get("updatedQuestions", {}), dict) else {},
-                "updatedReviews": copy.deepcopy(raw_event.get("updatedReviews", {})) if isinstance(raw_event.get("updatedReviews", {}), dict) else {},
-                "addedQuestionFingerprints": copy.deepcopy(raw_event.get("addedQuestionFingerprints", {})) if isinstance(raw_event.get("addedQuestionFingerprints", {}), dict) else {},
+                "updatedQuestions": _validate_history_delta(raw_event.get("updatedQuestions", {}), "更新题目"),
+                "updatedReviews": _validate_history_delta(raw_event.get("updatedReviews", {}), "更新审查"),
+                "updatedBooks": _validate_history_delta(raw_event.get("updatedBooks", {}), "更新教材册"),
+                "updatedCatalog": _validate_history_delta(raw_event.get("updatedCatalog", {}), "更新篇目"),
+                "updatedTypes": _validate_history_delta(raw_event.get("updatedTypes", {}), "更新题型"),
+                "addedDirectorySnapshots": _validate_added_directory_snapshots(
+                    raw_event.get("addedDirectorySnapshots", {})
+                ),
+                "addedQuestionFingerprints": {
+                    item_id.strip()[:120]: str(fingerprint).strip()[:200]
+                    for item_id, fingerprint in (
+                        raw_event.get("addedQuestionFingerprints", {})
+                        if isinstance(raw_event.get("addedQuestionFingerprints", {}), dict)
+                        else {}
+                    ).items()
+                    if isinstance(item_id, str) and item_id.strip() and str(fingerprint).strip()
+                },
             })
             if not clean["beforeHash"] or not clean["afterHash"]:
                 raise ValueError(f"题库导入历史第 {position} 项缺少版本校验值。")
@@ -1017,15 +1067,85 @@ def question_bank_history_view(
                 public.update({"revoked": True, "canRevoke": False, "revokeReason": "本次导入已经撤销。"})
             elif event["mode"] == "merge":
                 can_revoke = True
+                revoke_reason = ""
+                current_questions = {q["id"]: q for q in question_bank.get("questions", [])}
+                current_reviews = question_bank.get("workflow", {}).get("reviews", {})
                 if event.get("addedQuestionFingerprints"):
-                    current_questions = {q["id"]: q for q in question_bank.get("questions", [])}
-                    can_revoke = all(qid not in current_questions or make_question_semantic_fingerprint(current_questions[qid]) == fp for qid, fp in event["addedQuestionFingerprints"].items())
+                    can_revoke = all(
+                        qid not in current_questions
+                        or make_question_semantic_fingerprint(current_questions[qid]) == fingerprint
+                        for qid, fingerprint in event["addedQuestionFingerprints"].items()
+                    )
+                    if not can_revoke:
+                        revoke_reason = "本次导入新增的题目后来又被修改，无法安全撤销。"
                 if can_revoke:
                     for qid, delta in event.get("updatedQuestions", {}).items():
-                        current_item = next((q for q in question_bank.get("questions", []) if q["id"] == qid), None)
+                        current_item = current_questions.get(qid)
                         if current_item is None or make_question_semantic_fingerprint(current_item) != delta.get("afterFingerprint"):
-                            can_revoke = False; break
-                public.update({"revoked": False, "canRevoke": can_revoke, "revokeReason": "" if can_revoke else "本次导入影响的题目后来又被修改，无法安全撤销。"})
+                            can_revoke = False
+                            revoke_reason = "本次导入影响的题目后来又被修改，无法安全撤销。"
+                            break
+                if can_revoke:
+                    for qid, delta in event.get("updatedReviews", {}).items():
+                        if current_reviews.get(qid) != delta.get("after"):
+                            can_revoke = False
+                            revoke_reason = "本次导入影响的审查结果后来又被修改，无法安全撤销。"
+                            break
+                if can_revoke:
+                    directory_maps = {
+                        "books": {item["id"]: item for item in question_bank.get("books", [])},
+                        "catalog": {item["id"]: item for item in question_bank.get("catalog", [])},
+                        "questionTypes": {item["id"]: item for item in question_bank.get("questionTypes", [])},
+                    }
+                    for collection in ("books", "catalog", "questionTypes"):
+                        delta_key = {
+                            "books": "updatedBooks",
+                            "catalog": "updatedCatalog",
+                            "questionTypes": "updatedTypes",
+                        }[collection]
+                        for item_id, delta in event.get(delta_key, {}).items():
+                            if directory_maps[collection].get(item_id) != delta.get("after"):
+                                can_revoke = False
+                                revoke_reason = "本次导入影响的目录信息后来又被修改，无法安全撤销。"
+                                break
+                        if not can_revoke:
+                            break
+                if can_revoke and event.get("addedDirectorySnapshots"):
+                    added_question_ids = set(event.get("addedQuestionIds", []))
+                    catalog_by_id = {item["id"]: item for item in question_bank.get("catalog", [])}
+                    for collection in ("books", "catalog", "questionTypes"):
+                        snapshots = event["addedDirectorySnapshots"].get(collection, {})
+                        for item_id, snapshot in snapshots.items():
+                            current_item = next(
+                                (item for item in question_bank.get(collection, []) if item["id"] == item_id),
+                                None,
+                            )
+                            if current_item is not None and current_item != snapshot:
+                                can_revoke = False
+                                revoke_reason = "本次导入新增的目录信息后来又被修改，无法安全撤销。"
+                                break
+                            if collection == "catalog" and any(
+                                q["articleId"] == item_id and q["id"] not in added_question_ids
+                                for q in question_bank.get("questions", [])
+                            ):
+                                can_revoke = False
+                                revoke_reason = "本次导入新增的篇目仍被其他题目使用，无法安全撤销。"
+                                break
+                            if collection == "books" and any(
+                                catalog_by_id.get(q["articleId"], {}).get("bookId") == item_id
+                                and q["id"] not in added_question_ids
+                                for q in question_bank.get("questions", [])
+                            ):
+                                can_revoke = False
+                                revoke_reason = "本次导入新增的教材册仍被其他题目使用，无法安全撤销。"
+                                break
+                        if not can_revoke:
+                            break
+                public.update({
+                    "revoked": False,
+                    "canRevoke": can_revoke,
+                    "revokeReason": "" if can_revoke else revoke_reason or "本次导入影响的数据后来又被修改，无法安全撤销。",
+                })
             elif current_hash == event["afterHash"]:
                 public.update({"revoked": False, "canRevoke": True, "revokeReason": ""})
             else:
@@ -1116,15 +1236,28 @@ def make_question_semantic_fingerprint(question: dict[str, Any]) -> str:
 def _v4_review(raw: Any) -> dict[str, Any]:
     raw = raw if isinstance(raw, dict) else {}
     status = raw.get("status", "pending")
-    if status not in VALID_REVIEW_STATUSES:
+    if not isinstance(status, str) or status not in VALID_REVIEW_STATUSES:
         raise ValueError("题目审查状态无效。")
     suggested = raw.get("suggestedAnswer")
-    if suggested is not None and suggested not in VALID_OPTION_KEYS:
+    if suggested is not None and (not isinstance(suggested, str) or suggested not in VALID_OPTION_KEYS):
         raise ValueError("suggestedAnswer 必须是 A-D。")
     issues = raw.get("optionIssues", [])
-    if not isinstance(issues, list) or any(key not in VALID_OPTION_KEYS for key in issues):
+    if not isinstance(issues, list) or any(not isinstance(key, str) or key not in VALID_OPTION_KEYS for key in issues):
         raise ValueError("optionIssues 必须是 A-D 数组。")
-    return {"status": status, "suggestedAnswer": suggested, "optionIssues": sorted(set(issues)), "note": str(raw.get("note", "")).strip()[:2000], "reviewedAt": str(raw.get("reviewedAt", "")).strip()[:60]}
+    option_issues = sorted(set(issues))
+    note = str(raw.get("note", "")).strip()[:2000]
+    reviewed_at = str(raw.get("reviewedAt", "")).strip()[:60]
+    if status == "passed":
+        suggested = None
+        option_issues = []
+        note = ""
+    return {
+        "status": status,
+        "suggestedAnswer": suggested,
+        "optionIssues": option_issues,
+        "note": note,
+        "reviewedAt": reviewed_at,
+    }
 
 def question_issues(question: dict[str, Any]) -> list[dict[str, str]]:
     starts = find_word_occurrences(str(question.get("sentence", "")), str(question.get("word", "")))
@@ -1139,11 +1272,16 @@ def _v4_question(raw: Any, position: int, used: set[str], catalog_ids: set[str],
     if not isinstance(raw, dict): raise ValueError(f"第 {position} 题不是对象。")
     source = copy.deepcopy(raw)
     qid = source.get("id")
-    if generate_id or not isinstance(qid, str) or not qid.strip(): qid = _new_question_id(used)
-    if not isinstance(qid, str) or not qid.strip() or qid != qid.strip() or qid in used: raise ValueError(f"第 {position} 题的 id 缺失或重复。")
+    if generate_id:
+        qid = _new_question_id(used)
+    elif not isinstance(qid, str) or not qid.strip():
+        raise ValueError(f"第 {position} 题的 id 缺失或重复。")
+    if not isinstance(qid, str) or not qid.strip() or qid != qid.strip() or len(qid) > 160 or qid in used: raise ValueError(f"第 {position} 题的 id 缺失或重复。")
     used.add(qid)
-    if source.get("type", "context_meaning") not in type_ids: raise ValueError(f"第 {position} 题的题型不存在。")
-    if source.get("articleId") not in catalog_ids: raise ValueError(f"第 {position} 题的篇目不存在。")
+    question_type = source.get("type", "context_meaning")
+    article_id = source.get("articleId")
+    if not isinstance(question_type, str) or question_type.strip() not in type_ids: raise ValueError(f"第 {position} 题的题型不存在。")
+    if not isinstance(article_id, str) or article_id.strip() not in catalog_ids: raise ValueError(f"第 {position} 题的篇目不存在。")
     word, sentence = str(source.get("word", "")).strip(), str(source.get("sentence", "")).strip()
     if not word or not sentence: raise ValueError(f"第 {position} 题的 word 和 sentence 不能为空。")
     occurrence = source.get("targetOccurrence", 1)
@@ -1155,10 +1293,11 @@ def _v4_question(raw: Any, position: int, used: set[str], catalog_ids: set[str],
         if not isinstance(option, dict) or not isinstance(option.get("text"), str) or not option["text"].strip(): raise ValueError(f"第 {position} 题的选项不完整。")
         clean_options.append({"key": option["key"], "text": option["text"].strip()})
     if len({x["text"] for x in clean_options}) != 4: raise ValueError(f"第 {position} 题的选项不能重复。")
-    if source.get("answer") not in VALID_OPTION_KEYS: raise ValueError(f"第 {position} 题的答案必须为 A-D。")
+    answer = source.get("answer")
+    if not isinstance(answer, str) or answer not in VALID_OPTION_KEYS: raise ValueError(f"第 {position} 题的答案必须为 A-D。")
     number = source.get("number", position)
     if isinstance(number, bool) or not isinstance(number, int) or number < 1: raise ValueError(f"第 {position} 题的 number 无效。")
-    result = {"id": qid, "number": number, "type": source.get("type", "context_meaning"), "articleId": source["articleId"], "word": word, "sentence": sentence, "targetOccurrence": occurrence, "stem": str(source.get("stem", "")).strip(), "options": clean_options, "answer": source["answer"], "explanation": str(source.get("explanation", "")).strip()}
+    result = {"id": qid, "number": number, "type": question_type.strip() or "context_meaning", "articleId": article_id.strip(), "word": word, "sentence": sentence, "targetOccurrence": occurrence, "stem": str(source.get("stem", "")).strip(), "options": clean_options, "answer": answer, "explanation": str(source.get("explanation", "")).strip()}
     for key in ("source", "rule", "context", "supportingItems", "rawText"):
         if key in source: result[key] = source[key]
     return result
@@ -1180,24 +1319,43 @@ def _v4_duplicates(questions: list[dict[str, Any]], stored: Any) -> dict[str, An
 def validate_question_bank_v4(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict) or payload.get("format") != "wenyan-question-bank" or str(payload.get("schemaVersion")) != "4.0": raise ValueError("题库必须是 wenyan-question-bank 4.0 格式。")
     bank_id = payload.get("bankId")
-    if not isinstance(bank_id, str) or not bank_id.strip(): raise ValueError("题库缺少 bankId。")
+    if not isinstance(bank_id, str) or not bank_id.strip() or len(bank_id.strip()) > 160: raise ValueError("题库缺少有效 bankId。")
     books, catalog, types, raw_questions = (payload.get(k, []) for k in ("books", "catalog", "questionTypes", "questions"))
     if not all(isinstance(x, list) for x in (books, catalog, types, raw_questions)): raise ValueError("题库目录和 questions 必须是数组。")
     book_ids, clean_books = set(), []
-    for item in books:
-        if not isinstance(item, dict) or not str(item.get("id", "")).strip() or not str(item.get("label", "")).strip() or item["id"] in book_ids: raise ValueError("教材册目录无效或重复。")
-        book_ids.add(item["id"]); clean_books.append(copy.deepcopy(item))
+    for position, item in enumerate(books, 1):
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not isinstance(item.get("label"), str): raise ValueError(f"教材册目录第 {position} 项无效。")
+        book_id, label = item["id"].strip(), item["label"].strip()
+        if not book_id or not label or len(book_id) > 160 or book_id in book_ids: raise ValueError("教材册目录无效或重复。")
+        order = item.get("order", position)
+        if isinstance(order, bool) or not isinstance(order, int) or order < 0: raise ValueError("教材册目录排序必须是非负整数。")
+        book_ids.add(book_id)
+        clean_books.append({"id": book_id, "label": label, "order": order})
     type_ids, clean_types = set(), []
-    for item in types:
-        if not isinstance(item, dict) or not str(item.get("id", "")).strip() or not str(item.get("label", "")).strip() or item["id"] in type_ids: raise ValueError("题型目录无效或重复。")
-        type_ids.add(item["id"]); clean_types.append(copy.deepcopy(item))
+    for position, item in enumerate(types, 1):
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not isinstance(item.get("label"), str): raise ValueError(f"题型目录第 {position} 项无效。")
+        type_id, label = item["id"].strip(), item["label"].strip()
+        if not type_id or not label or len(type_id) > 160 or type_id in type_ids: raise ValueError("题型目录无效或重复。")
+        type_ids.add(type_id)
+        clean_types.append({"id": type_id, "label": label, "description": str(item.get("description", "")).strip()})
     # Built-in question types remain available even in a blank bank whose
     # directory has not been materialized yet; custom types are additive.
     type_ids |= set(VALID_TYPES)
     article_ids, clean_catalog = set(), []
-    for item in catalog:
-        if not isinstance(item, dict) or not str(item.get("id", "")).strip() or item["id"] in article_ids or item.get("bookId") not in book_ids: raise ValueError("篇目目录无效，必须引用有效 bookId。")
-        article_ids.add(item["id"]); clean_catalog.append(copy.deepcopy(item))
+    for position, item in enumerate(catalog, 1):
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not isinstance(item.get("bookId"), str) or not isinstance(item.get("title"), str): raise ValueError(f"篇目目录第 {position} 项无效。")
+        article_id, book_id, title = item["id"].strip(), item["bookId"].strip(), item["title"].strip()
+        if not article_id or not book_id or not title or len(article_id) > 160 or article_id in article_ids or book_id not in book_ids: raise ValueError("篇目目录无效，必须引用有效 bookId。")
+        article_ids.add(article_id)
+        # volume is a v3 compatibility field; it is intentionally discarded
+        # from the canonical v4 directory and always derived from bookId.
+        clean_catalog.append({
+            "id": article_id,
+            "bookId": book_id,
+            "unit": str(item.get("unit", "")).strip(),
+            "title": title,
+            "author": str(item.get("author", "")).strip(),
+        })
     defaults = dict(payload.get("quizDefaults") or {}); defaults["durationSeconds"] = validate_duration_seconds(defaults); defaults["scoring"] = validate_scoring_config(defaults)
     used, questions = set(), []
     for pos, raw in enumerate(raw_questions, 1): questions.append(_v4_question(raw, pos, used, article_ids, type_ids))
@@ -1206,7 +1364,9 @@ def validate_question_bank_v4(payload: Any) -> dict[str, Any]:
     workflow = payload.get("workflow") if isinstance(payload.get("workflow"), dict) else {}
     raw_reviews = workflow.get("reviews") if isinstance(workflow.get("reviews"), dict) else {}
     reviews = {q["id"]: _v4_review(raw_reviews.get(q["id"])) for q in questions}
-    return {"format": "wenyan-question-bank", "schemaVersion": "4.0", "bankId": bank_id.strip(), "title": str(payload.get("title", "")).strip(), "description": str(payload.get("description", "")).strip(), "questionTypes": clean_types, "books": clean_books, "catalog": clean_catalog, "quizDefaults": defaults, "questions": questions, "workflow": {"reviews": reviews, "duplicateResolutions": _v4_duplicates(questions, workflow.get("duplicateResolutions"))}}
+    title = str(payload.get("title", "")).strip() or "文言实词题库"
+    description = str(payload.get("description", "")).strip()
+    return {"format": "wenyan-question-bank", "schemaVersion": "4.0", "bankId": bank_id.strip(), "title": title, "description": description, "questionTypes": clean_types, "books": clean_books, "catalog": clean_catalog, "quizDefaults": defaults, "questions": questions, "workflow": {"reviews": reviews, "duplicateResolutions": _v4_duplicates(questions, workflow.get("duplicateResolutions"))}}
 
 def question_bank_diagnostics(bank: dict[str, Any]) -> dict[str, Any]:
     decisions = {}; group_members = {}
@@ -1237,7 +1397,10 @@ def _enrich_question_views(bank: dict[str, Any], include_workflow: bool) -> dict
         q.update({"article": article.get("title", ""), "volume": book.get("label", ""), "unit": article.get("unit", "")})
         q["availability"] = diagnostics["availability"][q["id"]]
         if include_workflow:
-            q["reviewStatus"] = "verified" if bank["workflow"]["reviews"][q["id"]]["status"] == "passed" else "candidate"
+            review = bank["workflow"]["reviews"][q["id"]]
+            q["reviewStatus"] = "abnormal" if diagnostics["issues"][q["id"]] else "verified" if review["status"] == "passed" else "candidate"
+            if diagnostics["issues"][q["id"]]:
+                q["reviewNote"] = "；".join(issue["message"] for issue in diagnostics["issues"][q["id"]])
         if include_workflow and q["id"] in duplicate_groups: q["duplicateReview"] = duplicate_groups[q["id"]]
     if include_workflow: view["diagnostics"] = diagnostics
     return view
@@ -1255,7 +1418,7 @@ def validate_question_import(payload: Any, current: dict[str, Any], *, generate_
         raise ValueError("新增题目导入必须是 wenyan-question-import 1.0 格式。")
     books = payload.get("books", current.get("books", [])); catalog = payload.get("catalog", current.get("catalog", [])); types = payload.get("questionTypes", current.get("questionTypes", []))
     draft = {"format": "wenyan-question-bank", "schemaVersion": "4.0", "bankId": current["bankId"], "title": payload.get("title", current.get("title", "")), "description": payload.get("description", current.get("description", "")), "books": books, "catalog": catalog, "questionTypes": types, "quizDefaults": current.get("quizDefaults", {}), "questions": payload.get("questions", []), "workflow": {"reviews": {}, "duplicateResolutions": {}}}
-    used = {q["id"] for q in current["questions"]}; article_ids = {x.get("id") for x in catalog}; type_ids = {x.get("id") for x in types}; normalized = []
+    used = {q["id"] for q in current["questions"]}; article_ids = {x.get("id") for x in catalog if isinstance(x, dict) and isinstance(x.get("id"), str)}; type_ids = set(VALID_TYPES) | {x.get("id") for x in types if isinstance(x, dict) and isinstance(x.get("id"), str)}; normalized = []
     used_numbers = {int(q.get("number", 0)) for q in current.get("questions", [])}; next_number = max(used_numbers or {0}) + 1
     for pos, raw in enumerate(draft["questions"], 1):
         item = copy.deepcopy(raw)
@@ -1270,6 +1433,11 @@ def validate_question_import(payload: Any, current: dict[str, Any], *, generate_
     return result
 
 def question_import_preview(current: dict[str, Any], incoming: dict[str, Any], mode: str) -> dict[str, Any]:
+    """Legacy pure preview helper kept for old callers and tests.
+
+    HTTP imports use ``server_question_import.build_import_preview`` so that
+    preview and apply share one authoritative merge implementation.
+    """
     imported = incoming["questions"]; current_by_id = {q["id"]: q for q in current["questions"]}; same_bank = incoming.get("importKind") != "external" and incoming.get("format") == "wenyan-question-bank" and incoming.get("bankId") == current.get("bankId")
     summary = {"importedTotal": len(imported), "unchanged": 0, "newQuestions": 0, "modified": 0, "majorModified": 0, "exactDuplicates": 0, "duplicateCandidates": 0, "reviewConflicts": 0}
     conflicts = []

@@ -1,6 +1,6 @@
 # 当前架构（As-built）
 
-本文档根据当前工作区实际代码整理，基线为 `version.json` 中的 `1.4.11`。它记录“现在怎么工作”，不把未来理想架构写成现状。
+本文档根据当前工作区实际代码整理，基线为 `version.json` 中的当前版本。它记录“现在怎么工作”，不把未来理想架构写成现状。
 
 ## 1. Runtime overview
 
@@ -122,6 +122,7 @@ finishGame -> result -> 保存答题记录 + 可选排行榜
 | `server_storage.py` | JSON 读取、先备份、临时文件 flush/fsync、`os.replace` 原子写入、备份轮转 |
 | `server_validators.py` | 题库、题目、目录、题型、计分、排行榜、solo/PK 记录、历史和审查的纯校验/归一化/身份规则 |
 | `server_questions.py` | 题库和审查文件路径配置、题库初始化、审查同步、导入历史、合并/替换撤销 |
+| `server_question_import.py` | Schema v4 导入格式识别、目录 ID 映射、外部题去重、同题库冲突分类、审查继承策略和导入预览/应用所共用的唯一合并逻辑 |
 | `server_records.py` | 答题记录和排行榜迁移/读取/留存、solo 结果幂等保存、PK 结果按 matchId 幂等保存 |
 | `update_service.py` | 读取 GitHub stable release、版本/资产/sha256 检查、下载和启动更新助手 |
 | `update_helper.py` | 读取更新 manifest、拒绝数据/题库/路径穿越、备份被替换代码、原子覆盖、失败回滚、重启 |
@@ -134,6 +135,7 @@ finishGame -> result -> 保存答题记录 + 可选排行榜
 run_server -> server_config
            -> server_auth -> server_storage
            -> server_questions -> server_validators / server_storage
+           -> server_question_import -> server_validators
            -> server_records -> server_validators / server_storage
            -> update_service
 launcher -> run_server
@@ -232,6 +234,7 @@ RUNTIME_PYTHON_FILES
   tools/server_storage.py
   tools/server_validators.py
   tools/server_questions.py
+  tools/server_question_import.py
   tools/server_records.py
   tools/run_server.py
   tools/launcher.py

@@ -123,14 +123,14 @@ python tools\run_server.py --port 8000 --allow-browser-admin-login
 构建脚本只接受显式输出目录，版本从 `version.json` 读取：
 
 ```powershell
-python tools\build_release.py --output .\release-build-v1.4.11-check
+python tools\build_release.py --output .\release-build-v<version>-check
 ```
 
 只构建源码包或 GitHub Windows 更新包：
 
 ```powershell
-python tools\build_release.py --output .\release-build-v1.4.11-source --source-only
-python tools\build_release.py --output .\release-build-v1.4.11-github --github-only
+python tools\build_release.py --output .\release-build-v<version>-source --source-only
+python tools\build_release.py --output .\release-build-v<version>-github --github-only
 ```
 
 Windows 构建要求构建机能找到外部 `pyinstaller`；运行生成的 EXE 不要求安装 Python。构建后至少检查：

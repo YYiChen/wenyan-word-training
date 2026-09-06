@@ -50,6 +50,7 @@ RUNTIME_PYTHON_FILES = [
     "tools/server_auth.py",
     "tools/server_storage.py",
     "tools/server_validators.py",
+    "tools/server_question_import.py",
     "tools/server_questions.py",
     "tools/server_records.py",
     "tools/run_server.py",

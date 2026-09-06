@@ -7,6 +7,7 @@ const API = {
   answerRecordsImport: "./api/answer-records/import",
   questionReviews: "./api/question-reviews",
   questionBankHistory: "./api/question-bank-history",
+  questionBankExport: "./api/question-bank-export",
   questionBankImport: "./api/question-bank-import",
   questionBankPreview: "./api/question-bank-import/preview",
   questionBankApply: "./api/question-bank-import/apply",
@@ -111,6 +112,7 @@ const render = () => {
     </nav>
     ${activeTab === "review" ? renderReviewTab() : activeTab === "questions" ? renderQuestionTab() : activeTab === "settings" ? renderSettingsTab() : activeTab === "scoring" ? renderScoringTab() : activeTab === "records" ? renderAnswerRecordsTab() : renderLeaderboardTab()}
     ${renderUpdateModal()}
+    ${typeof renderQuestionImportDialog === "function" ? renderQuestionImportDialog() : ""}
   `;
   wireEvents();
 };
@@ -130,6 +132,7 @@ const renderError = (message) => {
 const wireEvents = () => {
   wireUpdateEvents();
   wireAdminAuthEvents();
+  if (typeof wireQuestionImportDialogEvents === "function") wireQuestionImportDialogEvents();
   adminApp.querySelectorAll("[data-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       activeTab = button.dataset.tab;

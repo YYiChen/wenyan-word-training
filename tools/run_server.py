@@ -108,11 +108,7 @@ from server_validators import (
     student_question_bank_view,
     admin_question_bank_view,
     question_bank_diagnostics,
-    validate_question_import,
-    question_import_preview,
     make_question_semantic_fingerprint,
-    remap_foreign_bank_questions,
-    drop_exact_duplicates,
     validate_scoring_config,
 )
 from server_storage import read_json, prune_backups as _prune_backups, backup_and_write as _backup_and_write
@@ -141,6 +137,11 @@ from server_questions import (
     revoke_question_bank_import as _revoke_question_bank_import,
     sync_question_reviews_after_bank_write as _sync_question_reviews_after_bank_write,
     build_import_delta,
+)
+from server_question_import import (
+    build_import_preview,
+    materialize_question_import,
+    merge_question_bank_v4,
 )
 from server_records import (
     configure_paths as _configure_record_services,
@@ -653,6 +654,7 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
                 "/api/question-bank-import",
                 "/api/question-bank-import/preview",
                 "/api/question-bank-import/apply",
+                "/api/question-bank-export",
                 "/api/question-bank-history",
                 "/api/question-bank-history/revoke",
             } and not self.require_admin():
@@ -663,36 +665,58 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
                 else 5_000_000
             )
             if route in {"/api/question-bank-import/preview", "/api/question-bank-import/apply"}:
-                if not isinstance(payload, dict): raise ValueError("题库导入请求必须是对象。")
-                current = validate_question_bank_v4(read_json(QUESTIONS_PATH))
-                package = payload.get("package") or payload.get("bank")
+                if not isinstance(payload, dict):
+                    raise ValueError("题库导入请求必须是对象。")
+                mode = payload.get("mode", "merge")
+                if mode not in {"merge", "replace"}:
+                    raise ValueError("题库导入模式只能是 merge 或 replace。")
+                raw_package = payload.get("package")
+                if raw_package is None:
+                    raw_package = payload.get("bank")
                 if route.endswith("/preview"):
-                    if package.get("format") == "wenyan-question-import": package = validate_question_import(package, current)
-                    else: package = validate_question_bank_v4(package)
-                    self.send_json({"ok": True, "data": question_import_preview(current, package, payload.get("mode", "merge"))})
+                    current = validate_question_bank_v4(read_json(QUESTIONS_PATH))
+                    package = prepare_question_import_package(raw_package, current, mode=mode)
+                    preview = build_import_preview(current, package, mode=mode)
+                    preview["sourceName"] = str(payload.get("sourceName", "题库导入"))[:200]
+                    self.send_json({"ok": True, "data": preview})
                     return
-                if payload.get("baseEtag") and payload["baseEtag"] != make_json_etag(current):
-                    self.send_api_error("题库已变化，请重新预览导入。", HTTPStatus.CONFLICT); return
-                if package.get("format") == "wenyan-question-import": package = validate_question_import(package, current)
-                else: package = validate_question_bank_v4(package)
-                if (package.get("importKind") == "external" or package.get("bankId") != current.get("bankId")) and payload.get("mode", "merge") == "merge":
-                    package = drop_exact_duplicates(package, current)
-                    package = remap_foreign_bank_questions(package, {q["id"] for q in current["questions"]})
-                if payload.get("mode", "merge") == "replace": result = package
-                else:
-                    incoming_by_id = {q["id"]: q for q in package["questions"]}; result = copy.deepcopy(current)
-                    strategy = payload.get("strategy", "preserve_local")
-                    result["questions"] = [incoming_by_id.pop(q["id"], q) if q["id"] in incoming_by_id and package.get("importKind") != "external" and package["bankId"] == current["bankId"] and (strategy == "use_imported" or make_question_semantic_fingerprint(q) == make_question_semantic_fingerprint(incoming_by_id[q["id"]])) else q for q in result["questions"]]
-                    result["questions"].extend(q for q in incoming_by_id.values() if not any(make_question_semantic_fingerprint(q) == make_question_semantic_fingerprint(old) for old in current["questions"]))
-                    result["books"] = package.get("books", result["books"]); result["catalog"] = package.get("catalog", result["catalog"]); result["questionTypes"] = package.get("questionTypes", result["questionTypes"])
-                result = validate_question_bank_v4(result)
-                before_ids = {q["id"] for q in current["questions"]}
-                event = {"id": f"import-{int(time.time() * 1000)}-{secrets.token_hex(4)}", "kind": "import", "mode": payload.get("mode", "merge"), "sourceName": str(payload.get("sourceName", "题库导入"))[:200], "questionCountBefore": len(current["questions"]), "questionCountAfter": len(result["questions"]), "addedQuestionIds": [q["id"] for q in result["questions"] if q["id"] not in before_ids], "addedArticleIds": [a["id"] for a in result.get("catalog", []) if a["id"] not in {x["id"] for x in current.get("catalog", [])}], "addedBookIds": [b["id"] for b in result.get("books", []) if b["id"] not in {x["id"] for x in current.get("books", [])}], "addedTypeIds": [t["id"] for t in result.get("questionTypes", []) if t["id"] not in {x["id"] for x in current.get("questionTypes", [])}], "beforeHash": make_json_etag(current), "afterHash": make_json_etag(result), "createdAt": datetime.now().isoformat(timespec="seconds")}
-                event.update(build_import_delta(current, result))
-                if payload.get("mode", "merge") == "replace": event["beforeBank"] = copy.deepcopy(current)
-                backup_and_write(QUESTIONS_PATH, result)
-                history = append_question_bank_history_event(event)
-                self.send_json({"ok": True, "data": {"bank": admin_question_bank_view(result), "history": question_bank_history_view(history, result)}}, extra_headers={"ETag": make_json_etag(result)}); return
+                base_etag = payload.get("baseEtag")
+                if not isinstance(base_etag, str) or not base_etag.strip():
+                    raise ValueError("应用题库导入前必须先完成预览。")
+                with WRITE_LOCK:
+                    current = validate_question_bank_v4(read_json(QUESTIONS_PATH))
+                    if base_etag != make_json_etag(current):
+                        self.send_api_error("题库已变化，请重新预览导入。", HTTPStatus.CONFLICT)
+                        return
+                    package = prepare_question_import_package(raw_package, current, mode=mode)
+                    merged = merge_question_bank_v4(
+                        current,
+                        package,
+                        mode=mode,
+                        strategy=payload.get("strategy", "preserve_local"),
+                    )
+                    result = merged["bank"]
+                    source_name = str(payload.get("sourceName", "题库导入")).replace("\\", "/").split("/")[-1].strip()[:200]
+                    event = make_question_import_event(
+                        current,
+                        result,
+                        mode=mode,
+                        source_name=source_name or "题库导入",
+                    )
+                    backup_and_write(QUESTIONS_PATH, result)
+                    history = append_question_bank_history_event(event)
+                self.send_json(
+                    {
+                        "ok": True,
+                        "data": {
+                            "bank": admin_question_bank_view(result),
+                            "history": question_bank_history_view(history, result),
+                            "report": merged["report"],
+                        },
+                    },
+                    extra_headers={"ETag": make_json_etag(result)},
+                )
+                return
             if route == "/api/update-check":
                 if UPDATE_MANAGER is None:
                     self.send_json({"ok": True, "data": {"phase": "unavailable", "available": False}})
@@ -704,6 +728,26 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
                     self.send_api_error("更新服务不可用。", HTTPStatus.SERVICE_UNAVAILABLE)
                 else:
                     self.send_json({"ok": True, "data": UPDATE_MANAGER.apply_async()})
+                return
+            if route == "/api/question-bank-export":
+                if not isinstance(payload, dict):
+                    raise ValueError("题库导出请求必须是对象。")
+                with WRITE_LOCK:
+                    question_bank = validate_question_bank_v4(read_json(QUESTIONS_PATH))
+                    source_name = str(payload.get("sourceName", "题库 JSON")).replace("\\", "/").split("/")[-1].strip()[:200]
+                    event = {
+                        "id": f"export-{int(time.time() * 1000)}-{secrets.token_hex(4)}",
+                        "kind": "export",
+                        "format": "json",
+                        "sourceName": source_name or "题库 JSON",
+                        "questionCount": len(question_bank["questions"]),
+                        "createdAt": datetime.now().isoformat(timespec="seconds"),
+                    }
+                    history = append_question_bank_history_event(event)
+                self.send_json({
+                    "ok": True,
+                    "data": {"bank": question_bank, "history": question_bank_history_view(history, question_bank)},
+                })
                 return
             if route == "/api/admin-auth":
                 if not isinstance(payload, dict) or not authenticate_admin_password(payload.get("password")):
@@ -746,67 +790,30 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
                 if not isinstance(imported_bank, dict):
                     raise ValueError("题库导入请求缺少 bank 对象。")
                 with WRITE_LOCK:
-                    current_bank = validate_questions(read_json(QUESTIONS_PATH))
-                    if imported_bank.get("format") == "wenyan-question-import":
-                        imported_bank = validate_question_import(imported_bank, current_bank)
-                    else:
-                        imported_bank = validate_question_bank_v4(imported_bank)
-                    if (imported_bank.get("importKind") == "external" or imported_bank.get("bankId") != current_bank.get("bankId")) and mode == "merge":
-                        imported_bank = drop_exact_duplicates(imported_bank, current_bank)
-                        imported_bank = remap_foreign_bank_questions(imported_bank, {q["id"] for q in current_bank["questions"]})
-                    if mode == "merge":
-                        incoming = {q["id"]: q for q in imported_bank["questions"]}
-                        incoming_questions_by_id = dict(incoming)
-                        result = copy.deepcopy(current_bank)
-                        result["questions"] = [incoming.pop(q["id"], q) if imported_bank["bankId"] == current_bank["bankId"] and q["id"] in incoming else q for q in result["questions"]]
-                        result["questions"].extend(q for q in incoming.values() if not any(make_question_semantic_fingerprint(q) == make_question_semantic_fingerprint(old) for old in current_bank["questions"]))
-                        result["books"] = imported_bank.get("books", result["books"]); result["catalog"] = imported_bank.get("catalog", result["catalog"]); result["questionTypes"] = imported_bank.get("questionTypes", result["questionTypes"])
-                        existing_ids = {x["id"] for x in current_bank["questions"]}
-                        merged_reviews = dict(current_bank["workflow"]["reviews"])
-                        incoming_reviews = imported_bank["workflow"]["reviews"]
-                        current_questions = {q["id"]: q for q in current_bank["questions"]}
-                        incoming_is_same_bank = imported_bank["bankId"] == current_bank["bankId"]
-                        for qid, review in incoming_reviews.items():
-                            if qid not in existing_ids:
-                                merged_reviews[qid] = review
-                            elif incoming_is_same_bank and review.get("status") != "pending" and merged_reviews[qid].get("status") == "pending":
-                                merged_reviews[qid] = review
-                            elif incoming_is_same_bank and qid in incoming_questions_by_id and (payload.get("strategy") == "use_imported" or make_question_semantic_fingerprint(current_questions[qid]) == make_question_semantic_fingerprint(incoming_questions_by_id[qid])):
-                                merged_reviews[qid] = review
-                        result["workflow"] = {"reviews": merged_reviews, "duplicateResolutions": {}}
-                        result = validate_question_bank_v4(result)
-                    else:
-                        result = imported_bank
-                    previous_ids = {question["id"] for question in current_bank["questions"]}
-                    previous_article_ids = {article["id"] for article in current_bank.get("catalog", [])}
-                    previous_book_ids = {book["id"] for book in current_bank.get("books", [])}
-                    previous_type_ids = {question_type["id"] for question_type in current_bank.get("questionTypes", [])}
-                    event = {
-                        "id": f"import-{int(time.time() * 1000)}-{secrets.token_hex(4)}",
-                        "kind": "import",
-                        "mode": mode,
-                        "sourceName": source_name or "题库导入",
-                        "questionCountBefore": len(current_bank["questions"]),
-                        "questionCountAfter": len(result["questions"]),
-                        "addedQuestionIds": [question["id"] for question in result["questions"] if question["id"] not in previous_ids],
-                        "addedArticleIds": [article["id"] for article in result.get("catalog", []) if article["id"] not in previous_article_ids],
-                        "addedBookIds": [book["id"] for book in result.get("books", []) if book["id"] not in previous_book_ids],
-                        "addedTypeIds": [question_type["id"] for question_type in result.get("questionTypes", []) if question_type["id"] not in previous_type_ids],
-                        "beforeHash": make_json_etag(current_bank),
-                        "afterHash": make_json_etag(result),
-                        "createdAt": datetime.now().isoformat(timespec="seconds"),
-                    }
-                    event.update(build_import_delta(current_bank, result))
-                    if mode == "replace":
-                        event["beforeBank"] = copy.deepcopy(current_bank)
+                    current_bank = validate_question_bank_v4(read_json(QUESTIONS_PATH))
+                    imported_bank = prepare_question_import_package(imported_bank, current_bank, mode=mode)
+                    merged = merge_question_bank_v4(
+                        current_bank,
+                        imported_bank,
+                        mode=mode,
+                        strategy=payload.get("strategy", "preserve_local"),
+                    )
+                    result = merged["bank"]
+                    event = make_question_import_event(
+                        current_bank,
+                        result,
+                        mode=mode,
+                        source_name=source_name or "题库导入",
+                    )
                     backup_and_write(QUESTIONS_PATH, result)
                     history = append_question_bank_history_event(event)
                 self.send_json(
                     {
                         "ok": True,
                         "data": {
-                            "bank": result,
+                            "bank": admin_question_bank_view(result),
                             "history": question_bank_history_view(history, result),
+                            "report": merged["report"],
                         },
                     },
                     extra_headers={"ETag": make_json_etag(result)},
@@ -1036,6 +1043,85 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
         self.send_api_error("未找到这个管理接口。", HTTPStatus.NOT_FOUND)
 
 
+def prepare_question_import_package(
+    raw_package: Any,
+    current_bank: dict[str, Any],
+    *,
+    mode: str,
+) -> dict[str, Any]:
+    """Validate one of the two supported import formats for a request."""
+    if not isinstance(raw_package, dict):
+        raise ValueError("题库导入文件必须是 JSON 对象。")
+    format_name = raw_package.get("format")
+    if format_name == "wenyan-question-import":
+        return materialize_question_import(raw_package, current_bank, mode=mode)
+    if format_name == "wenyan-question-bank":
+        package = validate_question_bank_v4(raw_package)
+        # Keep the explicit external marker long enough for the authoritative
+        # merger to distinguish an external package from a same-bank export.
+        if raw_package.get("importKind") == "external":
+            package["importKind"] = "external"
+        return package
+    raise ValueError("不支持的题库格式，请使用当前版本导出的完整题库或 JSON 模版格式。")
+
+
+def make_question_import_event(
+    previous: dict[str, Any],
+    current: dict[str, Any],
+    *,
+    mode: str,
+    source_name: str,
+) -> dict[str, Any]:
+    previous_article_ids = {item["id"] for item in previous.get("catalog", [])}
+    previous_book_ids = {item["id"] for item in previous.get("books", [])}
+    previous_type_ids = {item["id"] for item in previous.get("questionTypes", [])}
+    previous_question_ids = {item["id"] for item in previous["questions"]}
+    event = {
+        "id": f"import-{int(time.time() * 1000)}-{secrets.token_hex(4)}",
+        "kind": "import",
+        "mode": mode,
+        "sourceName": source_name or "题库导入",
+        "questionCountBefore": len(previous["questions"]),
+        "questionCountAfter": len(current["questions"]),
+        "addedQuestionIds": [
+            item["id"] for item in current["questions"] if item["id"] not in previous_question_ids
+        ],
+        "addedArticleIds": [
+            item["id"] for item in current.get("catalog", []) if item["id"] not in previous_article_ids
+        ],
+        "addedBookIds": [
+            item["id"] for item in current.get("books", []) if item["id"] not in previous_book_ids
+        ],
+        "addedTypeIds": [
+            item["id"] for item in current.get("questionTypes", []) if item["id"] not in previous_type_ids
+        ],
+        "beforeHash": make_json_etag(previous),
+        "afterHash": make_json_etag(current),
+        "createdAt": datetime.now().isoformat(timespec="seconds"),
+    }
+    current_by_id = {
+        "books": {item["id"]: copy.deepcopy(item) for item in current.get("books", [])},
+        "catalog": {item["id"]: copy.deepcopy(item) for item in current.get("catalog", [])},
+        "questionTypes": {item["id"]: copy.deepcopy(item) for item in current.get("questionTypes", [])},
+    }
+    event["addedDirectorySnapshots"] = {
+        key: {
+            item_id: items[item_id]
+            for item_id in ids
+            if item_id in items
+        }
+        for key, items, ids in (
+            ("books", current_by_id["books"], set(event["addedBookIds"])),
+            ("catalog", current_by_id["catalog"], set(event["addedArticleIds"])),
+            ("questionTypes", current_by_id["questionTypes"], set(event["addedTypeIds"])),
+        )
+    }
+    event.update(build_import_delta(previous, current))
+    if mode == "replace":
+        event["beforeBank"] = copy.deepcopy(previous)
+    return event
+
+
 def main(argv: list[str] | None = None) -> None:
     global ALLOW_BROWSER_ADMIN_LOGIN, HTTP_SERVER, UPDATE_MANAGER
     stop_previous_frozen_instances()
@@ -1047,6 +1133,8 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="仅源码开发调试时允许浏览器密码登录后台",
     )
+
+
     args = parser.parse_args(argv)
     ALLOW_BROWSER_ADMIN_LOGIN = bool(args.allow_browser_admin_login)
     set_console_window_icon()
