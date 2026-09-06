@@ -1,7 +1,12 @@
 // admin-update.js: GitHub update status polling and application
 // Classic script module; shared state and API contracts remain in admin.js.
 
-const UPDATE_BUSY_PHASES = new Set(["checking", "downloading", "applying"]);
+const UPDATE_BUSY_PHASES = new Set(["checking", "downloading", "applying", "verifying"]);
+
+const formatDisplayVersion = (value) => {
+  const version = String(value || "").trim();
+  return version ? `v${version.replace(/^v/i, "")}` : "未知";
+};
 
 const formatUpdateDate = (value) => {
   if (!value) return "发布时间未知";
@@ -25,6 +30,7 @@ const updatePhaseLabel = (phase) => ({
   blocked: "本地源码有修改",
   downloading: "正在下载更新…",
   applying: "正在重启程序…",
+  verifying: "正在验证新版…",
   failed: "更新失败，已保留当前版本",
 }[phase] || "更新状态未知");
 
@@ -51,9 +57,11 @@ const renderUpdateModal = () => {
     ? "检测到源码目录存在未提交修改或本地文件变更。为避免覆盖你的代码，本次不会自动替换源码。"
     : "";
   const applyLabel = updateStatus.phase === "downloading"
-    ? `正在下载 ${Math.max(0, Number(updateStatus.progress) || 0)}%`
-    : updateStatus.phase === "applying" || updateRestarting
-      ? "正在重启…"
+      ? `正在下载 ${Math.max(0, Number(updateStatus.progress) || 0)}%`
+    : updateStatus.phase === "verifying"
+      ? "正在验证新版…"
+      : updateStatus.phase === "applying" || updateRestarting
+        ? "正在重启…"
       : "立即更新";
   return `
     <div class="update-modal-backdrop" role="presentation">
@@ -65,12 +73,13 @@ const renderUpdateModal = () => {
           </div>
           <span class="update-badge">${escapeHtml(updatePhaseLabel(updateStatus.phase))}</span>
         </div>
-        <p class="update-modal-meta">当前版本 ${escapeHtml(updateStatus.currentVersion || "未知")} · ${escapeHtml(formatUpdateDate(updateStatus.publishedAt))}</p>
+        <p class="update-modal-meta">当前版本 ${escapeHtml(formatDisplayVersion(updateStatus.currentVersion))} · ${escapeHtml(formatUpdateDate(updateStatus.publishedAt))}</p>
+        <p class="update-modal-meta">最新版本 ${escapeHtml(formatDisplayVersion(updateStatus.latestVersion))}</p>
         <h3>${escapeHtml(updateStatus.title || "GitHub Release")}</h3>
         <pre class="update-notes">${escapeHtml(note)}</pre>
         <p class="update-preserve-note">更新会自动重启本地服务，不会删除题库、排行榜或答题记录；正在答题的页面可能需要刷新。</p>
         ${blockedMessage ? `<p class="update-blocked-note">${escapeHtml(blockedMessage)}</p>` : ""}
-        ${updateStatus.phase === "failed" ? `<p class="update-blocked-note">更新包下载、校验或启动更新助手失败，当前版本未被替换。</p>` : ""}
+        ${updateStatus.phase === "failed" ? `<p class="update-blocked-note">更新包下载、校验或启动更新助手失败，当前版本未被替换；如已进入更新流程，请查看 Windows 启动窗口中的最终结果。</p>` : ""}
         <div class="update-modal-actions">
           <button class="admin-secondary" type="button" data-action="dismiss-update" ${busy ? "disabled" : ""}>稍后</button>
           ${releasePageUrl ? `<a class="admin-secondary update-github-link" href="${escapeHtml(releasePageUrl)}" target="_blank" rel="noopener noreferrer">在 GitHub 查看 / 下载</a>` : ""}

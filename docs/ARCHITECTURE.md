@@ -1,6 +1,6 @@
 # 当前架构（As-built）
 
-本文档根据当前工作区实际代码整理，基线为 `version.json` 中的 `1.4.10`。它记录“现在怎么工作”，不把未来理想架构写成现状。
+本文档根据当前工作区实际代码整理，基线为 `version.json` 中的 `1.4.11`。它记录“现在怎么工作”，不把未来理想架构写成现状。
 
 ## 1. Runtime overview
 
@@ -247,7 +247,7 @@ RUNTIME_PYTHON_FILES
 
 `run_server.py` 创建 `UpdateManager`。管理员后台通过 `/api/update-status`、`/api/update-check`、`/api/update-apply` 与它交互。源码工作区有未提交改动时不自动替换；下载包需匹配大小和 SHA-256。
 
-`update_helper.py` 只接受带 `update-manifest.json` 的 ZIP，拒绝 `data/`、`release/`、`.git`、题库相关文件和路径穿越；替换前将旧代码备份到用户数据目录，失败时尝试回滚，再重启原程序。更新流程不应触及题库、排行榜、答题记录和管理员配置。
+`update_helper.py` 只接受带 `update-manifest.json` 的 ZIP，拒绝 `data/`、`release/`、`.git`、题库相关文件和路径穿越；替换前将旧代码备份到用户数据目录，写入新 manifest 后启动新版并轮询本地 `/api/health`，只有应用名和目标版本均匹配才写成功结果。新版启动失败时会停止本次启动的进程、回滚程序文件并尝试重启旧版。冻结版更新助手先复制到 `%LOCALAPPDATA%/WenyanQuiz/updater-runtime/<随机目录>/` 后再运行，避免覆盖正在运行的自身。更新流程不应触及题库、排行榜、答题记录和管理员配置。
 
 ## 10. 已知架构折中
 
@@ -256,7 +256,6 @@ RUNTIME_PYTHON_FILES
 - `student-quiz.js`、`admin-questions.js`、`server_validators.py` 较大但职责内部仍有一致性；今后若拆分，必须保持 global/API 和 schema 兼容。
 - `student-records.js` 中的学生端历史记录渲染和 legacy route 可能是历史兼容残留；目前不能仅凭“首页未调用”删除，需单独确认缓存页兼容策略。
 - `build_release.py` 的 runtime 清单需要人工维护；这保证了隐私边界，但新增运行文件容易漏列，必须依赖测试和发布检查。
-- `README.md` 中仍有一处把当前开发版本写成 `v1.4.9` 的历史文字，而 `version.json` 和服务端实际为 `1.4.10`；开发和发布判断以 `version.json` 为准，不能从这处说明反推版本。
 
 ## 11. 当前仓库树摘要
 

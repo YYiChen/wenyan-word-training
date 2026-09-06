@@ -84,9 +84,9 @@ GitHub 仓库中的 `public-data/questions.json` 只是一份公开示例题库�
 
 ## 检查更新
 
-程序启动后会在后台查询 `YYiChen/wenyan-word-training` 的稳定 GitHub Release；只有进入管理员后台且存在更高版本时才提示。右上角“检查更新”可手动检查。更新完成后即使自动打开 admin.html，也需要重新从 Windows 启动窗口进入。
+程序启动后会在后台查询 `YYiChen/wenyan-word-training` 的稳定 GitHub Release；只有进入管理员后台且存在更高版本时才提示。右上角“检查更新”可手动检查。更新完成后不会自动打开 admin.html；请从 Windows 启动窗口再次打开管理后台。
 
-确认更新后，程序会下载并校验代码包，再由独立更新助手自动重启。更新只覆盖清单中的程序文件，不触碰应用旁的 `data/` 或 `%LOCALAPPDATA%/WenyanQuiz/` 中的排行榜、答题记录和管理员配置。源码目录有未提交修改时会跳过自动替换。
+确认更新后，程序会下载并校验代码包，再由独立更新助手等待旧程序退出、替换程序文件、启动新版并检查 `/api/health`。只有新版健康检查通过才算成功，失败时会自动回滚。更新只覆盖清单中的程序文件，不触碰应用旁的 `data/` 或 `%LOCALAPPDATA%/WenyanQuiz/` 中的排行榜、答题记录和管理员配置。源码目录有未提交修改时会跳过自动替换。
 
 ## 发布
 

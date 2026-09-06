@@ -11,6 +11,7 @@ const API = {
   questionBankRevoke: "./api/question-bank-history/revoke",
   adminAuth: "./api/admin-auth",
   adminLaunchSession: "./api/admin-launch-session",
+  health: "./api/health",
   updateStatus: "./api/update-status",
   updateCheck: "./api/update-check",
   updateApply: "./api/update-apply",
@@ -56,6 +57,7 @@ let statusMessage = "";
 let loginError = "";
 let adminAuthorized = false;
 let adminToken = null;
+let appVersion = null;
 let questionBankEtag = null;
 let leaderboardEtag = null;
 let updateStatus = { phase: "idle", available: false, currentVersion: null, latestVersion: null, progress: 0 };
@@ -86,7 +88,7 @@ const render = () => {
   adminApp.innerHTML = `
     <header class="admin-header">
       <div>
-        <p class="eyebrow">文言实词 · 管理后台</p>
+        <p class="eyebrow">文言实词 · 管理后台 <span class="admin-version">${appVersion ? `v${escapeHtml(appVersion)}` : "版本未知"}</span></p>
         <h1>${pageTitle}</h1>
         <p class="admin-subtitle">${pageSubtitle}</p>
       </div>
@@ -159,13 +161,17 @@ const wireEvents = () => {
 
 const load = async () => {
   try {
-    const [questionBank, leaderboardData, questionReviews, answerRecordData, questionBankHistoryData] = await Promise.all([
+    const [healthData, questionBank, leaderboardData, questionReviews, answerRecordData, questionBankHistoryData] = await Promise.all([
+      fetchJson(API.health),
       fetchJson(API.questions),
       fetchJson(API.leaderboard),
       fetchJson(API.questionReviews),
       fetchJson(API.answerRecords),
       fetchJson(API.questionBankHistory),
     ]);
+    appVersion = typeof healthData?.version === "string" && healthData.version.trim()
+      ? healthData.version.trim()
+      : null;
     if (!Array.isArray(questionBank.questions)) throw new Error("题库格式无效：缺少 questions 数组。");
     bank = questionBank;
     leaderboard = normalizeLeaderboard(leaderboardData);

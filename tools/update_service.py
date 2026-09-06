@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -26,11 +27,23 @@ VERSION_PATTERN = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?$")
 SHA256_PATTERN = re.compile(r"^[0-9a-fA-F]{64}$")
 ALLOWED_DOWNLOAD_HOSTS = {"github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"}
 GITHUB_API_BASE = "https://api.github.com"
-USER_AGENT = "WenyanWordTraining/1.4.8 update-checker"
+USER_AGENT = "WenyanWordTraining update-checker"
 MAX_RELEASE_NOTES = 12_000
 MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024
 CHECK_COOLDOWN_SECONDS = 60
 REQUEST_TIMEOUT_SECONDS = 6
+DEFAULT_APP_NAME = "wenyan-word-training"
+
+
+def prepare_runtime_updater(user_data_dir: Path, helper: Path) -> Path:
+    """Copy a frozen updater outside the install directory before launching it."""
+
+    runtime_root = user_data_dir / "updater-runtime"
+    runtime_root.mkdir(parents=True, exist_ok=True)
+    runtime_dir = Path(tempfile.mkdtemp(prefix="run-", dir=runtime_root))
+    runtime_helper = runtime_dir / helper.name
+    shutil.copy2(helper, runtime_helper)
+    return runtime_helper
 
 
 def parse_version(value: Any) -> tuple[int, int, int] | None:
@@ -251,6 +264,7 @@ class UpdateManager:
         user_data_dir: Path,
         port: int,
         frozen: bool,
+        app_name: str = DEFAULT_APP_NAME,
         shutdown_callback: Callable[[], None] | None = None,
         opener: Callable[..., Any] = urlopen,
     ) -> None:
@@ -260,6 +274,7 @@ class UpdateManager:
         self.port = port
         self.frozen = frozen
         self.mode = "windows" if frozen else "source"
+        self.app_name = app_name
         self.current_version = metadata["version"]
         self.repository = metadata["repository"]
         self.shutdown_callback = shutdown_callback
@@ -282,11 +297,9 @@ class UpdateManager:
     def check_async(self, *, force: bool) -> dict[str, Any]:
         now = time.monotonic()
         with self._lock:
-            if self._state["phase"] in {"checking", "downloading", "applying"}:
+            if self._state["phase"] in {"checking", "downloading", "applying", "verifying"}:
                 return self.status()
             if not force and now - self._last_check_at < CHECK_COOLDOWN_SECONDS:
-                return self.status()
-            if force and now - self._last_check_at < CHECK_COOLDOWN_SECONDS:
                 return self.status()
             self._last_check_at = now
             self._state = {
@@ -418,6 +431,8 @@ class UpdateManager:
         if not helper.exists():
             raise FileNotFoundError(helper)
         if self.frozen:
+            helper = prepare_runtime_updater(self.user_data_dir, helper)
+        if self.frozen:
             command = [str(helper)]
         else:
             command = [str(sys.executable), str(helper)]
@@ -431,10 +446,14 @@ class UpdateManager:
                 str(archive_path),
                 "--version",
                 str(candidate["version"]),
+                "--previous-version",
+                str(self.current_version),
+                "--expected-app",
+                str(self.app_name),
+                "--health-url",
+                f"http://127.0.0.1:{self.port}/api/health",
                 "--restart-executable",
                 str(restart_executable),
-                "--restart-url",
-                f"http://127.0.0.1:{self.port}/admin.html",
             ]
         )
         for arg in restart_args:

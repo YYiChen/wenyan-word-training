@@ -982,6 +982,7 @@ def main(argv: list[str] | None = None) -> None:
         user_data_dir=USER_DATA_DIR,
         port=args.port,
         frozen=bool(getattr(sys, "frozen", False)),
+        app_name=APP_NAME,
         shutdown_callback=request_shutdown,
     )
     UPDATE_MANAGER.start_background()

@@ -39,6 +39,15 @@ class RuntimeAssetTests(unittest.TestCase):
         version_payload = json.loads((ROOT / "version.json").read_text(encoding="utf-8"))
         self.assertEqual(run_server.APP_VERSION, version_payload["version"])
 
+    def test_launcher_and_admin_show_runtime_version_contract(self) -> None:
+        launcher_source = (ROOT / "tools" / "launcher.py").read_text(encoding="utf-8")
+        admin_source = (ROOT / "admin.js").read_text(encoding="utf-8")
+        self.assertIn("run_server.APP_VERSION", launcher_source)
+        self.assertIn("expected_version=run_server.APP_VERSION", launcher_source)
+        self.assertIn("read_update_result", launcher_source)
+        self.assertIn('health: "./api/health"', admin_source)
+        self.assertIn("healthData", admin_source)
+
 
 if __name__ == "__main__":
     unittest.main()

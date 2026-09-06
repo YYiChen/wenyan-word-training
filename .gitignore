@@ -25,6 +25,7 @@ build/
 release-build/
 release-build-v*/
 build-v*/
+wenyan-word-training-v*-windows/
 
 # Generated distribution archives
 release/

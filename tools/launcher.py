@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 import threading
 import time
@@ -63,6 +64,53 @@ def user_data_dir() -> Path:
     return Path(base) / "WenyanQuiz"
 
 
+def cleanup_stale_updater_runtime(max_age_seconds: float = 24 * 60 * 60) -> None:
+    """Remove only old temporary updater copies owned by this application."""
+
+    runtime_root = user_data_dir() / "updater-runtime"
+    try:
+        entries = list(runtime_root.iterdir())
+    except OSError:
+        return
+    now = time.time()
+    for entry in entries:
+        if not entry.is_dir() or entry.is_symlink():
+            continue
+        try:
+            if now - entry.stat().st_mtime <= max_age_seconds:
+                continue
+            shutil.rmtree(entry, ignore_errors=True)
+        except OSError:
+            pass
+    try:
+        if not any(runtime_root.iterdir()):
+            runtime_root.rmdir()
+    except OSError:
+        pass
+
+
+def read_update_result() -> dict | None:
+    """Consume one updater result without exposing any secret-bearing fields."""
+
+    path = user_data_dir() / "update-result.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    # The updater writes this marker before launching the new version. Keep it
+    # on disk until the final success/rollback result replaces it.
+    if isinstance(payload, dict) and payload.get("phase") == "verifying":
+        return None
+    try:
+        path.unlink()
+    except OSError:
+        pass
+    if not isinstance(payload, dict) or not isinstance(payload.get("message"), str):
+        return None
+    allowed_keys = {"version", "previousVersion", "ok", "rolledBack", "message", "updatedAt", "phase"}
+    return {key: payload[key] for key in allowed_keys if key in payload}
+
+
 def health_url(port: int) -> str:
     return f"http://127.0.0.1:{port}/api/health"
 
@@ -112,8 +160,10 @@ def stop_existing_project_service(port: int) -> None:
         time.sleep(0.1)
 
 
-def is_project_health(payload: dict | None) -> bool:
-    return bool(payload and payload.get("ok") is True and payload.get("app") == run_server.APP_NAME)
+def is_project_health(payload: dict | None, expected_version: str | None = None) -> bool:
+    if not payload or payload.get("ok") is not True or payload.get("app") != run_server.APP_NAME:
+        return False
+    return expected_version is None or payload.get("version") == expected_version
 
 
 def friendly_start_error(error: BaseException, port: int = DEFAULT_PORT) -> str:
@@ -147,6 +197,9 @@ class LauncherApp:
         self.starting = False
         self.server_error: BaseException | None = None
         self.server_thread: threading.Thread | None = None
+        self._update_result: dict | None = None
+        self._update_result_attempts = 0
+        self._update_result_applied = False
         self._state_lock = threading.Lock()
         self.ui_font = choose_ui_font(root)
         self.mono_font = "Consolas"
@@ -157,6 +210,7 @@ class LauncherApp:
         self._build_window()
         self.root.after(80, self.start_service)
         self.root.after(HEALTH_POLL_MS, self.poll_service)
+        self.root.after(250, self.poll_update_result)
 
     def _build_window(self) -> None:
         self.root.title(APP_TITLE)
@@ -187,7 +241,7 @@ class LauncherApp:
         ).pack(fill=X)
         Label(
             header,
-            text=APP_SUBTITLE,
+            text=f"{APP_SUBTITLE} · v{run_server.APP_VERSION}",
             bg=COLOR_WINDOW,
             fg=COLOR_MUTED,
             font=(self.ui_font, 10),
@@ -353,6 +407,25 @@ class LauncherApp:
         self.status_color = color
         self.status_dot.configure(fg=color)
 
+    def poll_update_result(self) -> None:
+        if self._update_result is None:
+            self._update_result = read_update_result()
+        if self._update_result is not None and self.ready and not self._update_result_applied:
+            result = self._update_result
+            self._update_result_applied = True
+            if result.get("ok") is True:
+                self.set_status("更新成功", str(result["message"]), COLOR_SUCCESS)
+            elif result.get("rolledBack") is True:
+                self.set_status("更新失败，已回滚", str(result["message"]), COLOR_ERROR)
+            else:
+                self.set_status("更新失败", str(result["message"]), COLOR_ERROR)
+            return
+        if self._update_result_applied:
+            return
+        self._update_result_attempts += 1
+        if self._update_result_attempts < 40:
+            self.root.after(250, self.poll_update_result)
+
     def start_service(self) -> None:
         if self.closing or self.starting:
             return
@@ -407,7 +480,7 @@ class LauncherApp:
             return
 
         payload = read_health(self.port)
-        if is_project_health(payload):
+        if is_project_health(payload, expected_version=run_server.APP_VERSION):
             if not self.ready:
                 self.ready = True
                 self.starting = False
@@ -693,6 +766,7 @@ def redirect_frozen_output() -> object | None:
 
 def main() -> int:
     options = parse_args()
+    cleanup_stale_updater_runtime()
     log_handle = redirect_frozen_output()
     root = Tk()
     LauncherApp(root, options)
