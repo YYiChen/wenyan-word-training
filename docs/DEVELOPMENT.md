@@ -64,6 +64,7 @@
 python -m unittest discover -s tests -q
 node tools\test_scoring.js
 node tools\test_question_identity.js
+node tools\test_sync_ui.js
 git diff --check
 ```
 
@@ -191,6 +192,16 @@ Windows 构建要求构建机能找到外部 `pyinstaller`；运行生成的 EXE
 建议以后增加一个仅供开发/构建使用的 `requirements-dev.txt`，至少记录 `python-docx`、`Pillow` 和经验证的 `PyInstaller` 版本；本次不创建，避免在没有确定兼容版本时凭印象锁版本。运行产品本身不需要这些包，Windows release 用户也不需要 Python。
 
 当前不存在 `.github/workflows/`。建议以后增加最小 CI，但本次不创建：在 Windows runner 上安装 Python 和 Node，运行上述 Python/Node 测试、JS/Python 语法检查、runtime asset 检查和 `git diff --check`；PyInstaller 全量构建可作为手动 release 或单独 workflow，避免每次普通提交引入构建平台复杂度。
+
+## 14. 远程同步开发约束
+
+- 同步只接受 v4 题库；不要为 v3 加任何同步兼容逻辑，也不要顺手删除旧迁移代码。
+- 题库 JSON 禁止写入任何同步字段（server IP/port、账号、密码、token、clientId、revision、冲突、开关、同步时间）；同步状态只放在 `%LOCALAPPDATA%/WenyanQuiz/sync-*.json|bin`。
+- 客户端与服务器共享 `tools/sync_protocol.py` 的纯规则（实体 diff、确定性 operationId、三方比较语义），不要复制第二套；服务器可复用 `tools/server_validators.py`，不要复制校验器。
+- `sync_server/` 不进客户端 Windows/source 更新包；客户端新增 runtime 模块必须同步加入 `RUNTIME_PYTHON_FILES` / `RUNTIME_WEB_FILES` 并通过 runtime asset 测试。
+- 本地 `/api/sync/*` 全部 admin-only；学生视图只能通过 `availability.playable` 感知屏蔽，不得泄露 server IP、账号、revision、冲突原文与备份列表。
+- 改动同步逻辑后，除全量测试外，至少跑双客户端场景测试（收敛、分歧建冲突、解决、离线补齐、备份不影响 revision）。
+
 ## 题库 Schema v4 开发约束
 
 - `data/questions.json` 是唯一完整题库；审查写入 `workflow.reviews`，重复处理写入 `workflow.duplicateResolutions`。

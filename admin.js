@@ -17,6 +17,19 @@ const API = {
   updateStatus: "./api/update-status",
   updateCheck: "./api/update-check",
   updateApply: "./api/update-apply",
+  syncStatus: "./api/sync/status",
+  syncConfigure: "./api/sync/configure",
+  syncTest: "./api/sync/test",
+  syncConnect: "./api/sync/connect",
+  syncDisconnect: "./api/sync/disconnect",
+  syncNow: "./api/sync/now",
+  syncBootstrapPreview: "./api/sync/bootstrap/preview",
+  syncBootstrapConfirm: "./api/sync/bootstrap/confirm",
+  syncConflicts: "./api/sync/conflicts",
+  syncConflictsResolve: "./api/sync/conflicts/resolve",
+  syncBackups: "./api/sync/backups",
+  syncBackupsUpload: "./api/sync/backups/upload",
+  syncBackupsDownload: "./api/sync/backups/download",
 };
 
 const {
@@ -95,6 +108,7 @@ const render = () => {
         <p class="admin-subtitle">${pageSubtitle}</p>
       </div>
       <div class="admin-header-actions">
+        ${typeof renderSyncBadge === "function" ? renderSyncBadge() : ""}
         <button class="admin-secondary" type="button" data-action="check-update" ${UPDATE_BUSY_PHASES.has(updateStatus.phase) ? "disabled" : ""}>${UPDATE_BUSY_PHASES.has(updateStatus.phase) ? escapeHtml(updatePhaseLabel(updateStatus.phase)) : "检查更新"}</button>
         <button class="admin-secondary" type="button" data-action="logout">退出后台</button>
         <a class="admin-home-link" href="./index.html">返回学生答题页</a>
@@ -150,6 +164,7 @@ const wireEvents = () => {
   }
   if (activeTab === "settings") {
     wireSettingsEvents();
+    if (typeof wireSyncEvents === "function") wireSyncEvents();
     return;
   }
   if (activeTab === "scoring") {
@@ -182,8 +197,16 @@ const load = async () => {
     answerRecords = normalizeAnswerRecords(answerRecordData);
     questionBankHistory = normalizeQuestionBankHistory(questionBankHistoryData);
     selectedQuestionId = bank.questions[0]?.id || null;
+    if (typeof loadSyncStatus === "function") {
+      try {
+        await loadSyncStatus();
+      } catch {
+        /* sync badge stays default-off; never blocks admin startup */
+      }
+    }
     render();
     startUpdateMonitoring();
+    if (typeof startSyncBadgePolling === "function") startSyncBadgePolling();
   } catch (error) {
     renderError(error instanceof Error ? error.message : "题库读取失败。");
   }
@@ -193,6 +216,7 @@ window.addEventListener("pagehide", () => {
   adminAuthorized = false;
   adminToken = null;
   stopUpdatePolling();
+  if (typeof stopSyncBadgePolling === "function") stopSyncBadgePolling();
   updateModalOpen = false;
 });
 

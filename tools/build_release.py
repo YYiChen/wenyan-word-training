@@ -37,6 +37,7 @@ RUNTIME_WEB_FILES = [
     "admin-records.js",
     "admin-update.js",
     "admin-settings.js",
+    "admin-sync.js",
     "pk-finish-effects.css",
     "pk-finish-effects.js",
     "style.css",
@@ -57,6 +58,8 @@ RUNTIME_PYTHON_FILES = [
     "tools/launcher.py",
     "tools/update_helper.py",
     "tools/update_service.py",
+    "tools/server_sync.py",
+    "tools/sync_protocol.py",
 ]
 
 SOURCE_FILES = [
@@ -64,6 +67,21 @@ SOURCE_FILES = [
     *RUNTIME_WEB_FILES,
     "免Python版使用说明.txt",
     *RUNTIME_PYTHON_FILES,
+]
+
+#: Standalone classroom sync-server distribution. Kept separate from the
+#: client update packages by design: client upgrades must never download a
+#: server binary, and the server needs only protocol + validation helpers.
+SERVER_FILES = [
+    "sync_server/server.py",
+    "sync_server/storage.py",
+    "sync_server/auth.py",
+    "sync_server/README.md",
+    "sync-server.bat",
+    "tools/sync_protocol.py",
+    "tools/server_validators.py",
+    "tools/server_config.py",
+    "version.json",
 ]
 
 PUBLIC_README = """# 文言实词限时训练
@@ -110,6 +128,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--source-only", action="store_true", help="只生成源码更新包")
     parser.add_argument("--github-only", action="store_true", help="只生成不带题库的 GitHub Windows 更新包")
+    parser.add_argument("--server-only", action="store_true", help="只生成独立同步服务器包")
     return parser.parse_args()
 
 
@@ -273,6 +292,22 @@ def build_windows_archive(
     return output
 
 
+def build_server_archive(root: Path, output_dir: Path, version: str, temp_root: Path) -> Path:
+    server_dir = temp_root / "sync-server"
+    server_dir.mkdir(parents=True, exist_ok=True)
+    for relative in SERVER_FILES:
+        source = root / Path(relative)
+        if not source.is_file():
+            raise FileNotFoundError(source)
+        safe = safe_relative(relative)
+        target = server_dir / Path(safe)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+    output = output_dir / f"wenyan-word-training-v{version}-sync-server.zip"
+    create_zip(server_dir, output)
+    return output
+
+
 def write_checksums(output_dir: Path, archives: list[Path]) -> Path:
     checksum_path = output_dir / "SHA256SUMS.txt"
     lines = []
@@ -285,9 +320,9 @@ def write_checksums(output_dir: Path, archives: list[Path]) -> Path:
 
 def main() -> int:
     options = parse_args()
-    selected_modes = sum([bool(options.source_only), bool(options.github_only)])
+    selected_modes = sum([bool(options.source_only), bool(options.github_only), bool(options.server_only)])
     if selected_modes > 1:
-        raise SystemExit("--source-only、--github-only 只能选择一个。")
+        raise SystemExit("--source-only、--github-only、--server-only 只能选择一个。")
     root = options.repo_root.resolve()
     output_dir = options.output.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -304,6 +339,8 @@ def main() -> int:
                 version,
                 temp_root,
             ))
+        elif options.server_only:
+            archives.append(build_server_archive(root, output_dir, version, temp_root))
         else:
             archives.extend([
                 build_source_archive(root, output_dir, version, temp_root),
@@ -313,6 +350,7 @@ def main() -> int:
                     version,
                     temp_root,
                 ),
+                build_server_archive(root, output_dir, version, temp_root),
             ])
     checksum_path = write_checksums(output_dir, archives)
     for path in [*archives, checksum_path]:

@@ -99,7 +99,25 @@
 - 旧题目、旧排行榜、旧答题记录缺失新字段时由 validator 使用兼容默认值；不要无需求删除旧字段或强制一次性重写用户数据。
 - 任何真正破坏 API/schema 的变更都必须先定义迁移和回滚，并增加对应测试；不能用“前端已经更新”代替兼容方案。
 
-## 11. Needs confirmation（不写死的内容）
+## 11. 远程同步不变量（第一版）
+
+- Local v4 bank remains fully usable when remote sync is unavailable. 本机题库永远是可用的 authoritative copy；同步默认关闭。
+- Sync is disabled by default. 旧版升级后行为不变，不自动连接、不自动上传、不要求登录。
+- Sync never stores credentials inside the question-bank document. 题库 JSON 禁止出现 server IP/port、账号、密码、token、clientId、revision、同步时间；同步是运行环境状态。
+- Remote sync operates on entity changes, not repeated whole-bank replacement. 日常只有增量 operations；整库只用于首次初始化、灾难恢复与手工备份。
+- Full-bank remote backup is separate from live sync. 备份上传不改共享题库、不增加 revision、不产生 operation；下载不自动导入本机。
+- Backup upload never changes live workspace revision.
+- After bootstrap, all clients share one bank lineage. 不同 bankId 本机题库出现时暂停自动同步，不得把新 lineage 自动推上服务器；同步启用期间“导入并替换”被阻止。
+- A different local bankId pauses sync instead of silently replacing remote data.
+- Local changes are saved before remote synchronization. 本机先落盘、UI 先成功，worker 再发现并上传；崩溃重启后 diff 重新发现。
+- Remote writes are serialized. 服务器写锁 + SQLite 单事务（读基线、校验、应用、验 v4、写库、涨 revision、记日志）。
+- Operations are idempotent. operation_id 确定性生成并唯一约束；重复提交返回原结果，不涨 revision、不重复建冲突。
+- Different non-pending review conclusions create a blocking shared conflict. 绝不 last-write-wins；冲突持久化在服务器，所有设备可见并可处理。
+- Unresolved sync-conflict questions are not student-playable. 以派生 `availability.reason = sync_conflict` 叠加（invalid 优先），不写入题库；学生端只看 playable。
+- Student records are never sent to the sync server. 排行榜、答题记录、PK、密码、会话、日志不同步；备份只接受 v4 题库。
+- v1.4.13 packaged v4 data must survive an in-place update to future releases. 同步默认关闭且不改变更新数据边界。
+
+## 12. Needs confirmation（不写死的内容）
 
 以下事项当前代码无法充分证明，本文不把它们伪装成 invariant：
 

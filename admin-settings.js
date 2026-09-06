@@ -111,6 +111,7 @@ const renderSettingsTab = () => `
     <h2 class="admin-card-title">题库结构设置</h2>
     <p>教材册、所属文章和题型会直接保存到当前题库 JSON。删除正在被题目使用的项目会被阻止，避免题目失去归属。</p>
   </section>
+  ${typeof renderSyncCard === "function" ? renderSyncCard() : ""}
   <div class="settings-grid">${renderQuestionTypeSettings()}${renderBookSettings()}${renderArticleSettings()}</div>
 `;
 

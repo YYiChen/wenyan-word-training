@@ -568,14 +568,65 @@ class UpdateHelperTests(unittest.TestCase):
         transaction.rollback_data.return_value = False
         with patch.object(update_helper, "wait_for_process_exit"), \
                 patch.object(update_helper, "apply_update", return_value=transaction), \
-                patch.object(update_helper, "start_version", return_value=Mock()), \
+                patch.object(update_helper, "start_version", return_value=Mock()) as start_version, \
                 patch.object(update_helper, "wait_for_health", side_effect=TimeoutError("health timeout")), \
                 patch.object(update_helper, "stop_started_process"), \
                 patch.object(update_helper, "write_result") as write_result, \
                 patch.object(update_helper, "log_update_event"):
             self.assertFalse(update_helper.run_update_transaction(options))
         self.assertFalse(write_result.call_args.kwargs["rolled_back"])
-        self.assertIn("数据自动恢复未完全成功", write_result.call_args.args[3])
+        self.assertEqual(write_result.call_args.kwargs["phase"], "failed")
+        self.assertIn("数据恢复未完全成功", write_result.call_args.args[3])
+        # P1: the old build must not be restarted on a half-restored tree.
+        # start_version ran once for the failed new version, never for restart.
+        start_version.assert_called_once()
+
+    def test_rollback_restores_absent_protected_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            install_dir = root / "install"
+            install_dir.mkdir(parents=True)
+            (install_dir / "app.js").write_text("old", encoding="utf-8")
+            archive_path = self.make_archive(root, {"app.js": b"new"})
+            options = self.make_options(install_dir, archive_path)
+            local_root = root / "localappdata" / "WenyanQuiz"
+            with patch.dict(os.environ, {"LOCALAPPDATA": str(root / "localappdata")}, clear=False):
+                transaction = update_helper.apply_update(options)
+                assert transaction.data_snapshot is not None
+                manifest = json.loads(
+                    (transaction.data_snapshot / "snapshot-manifest.json").read_text(encoding="utf-8")
+                )
+                self.assertFalse(manifest["data_dir_existed"])
+                # The failed new version creates files that never existed.
+                (install_dir / "data").mkdir(parents=True)
+                (install_dir / "data" / "questions.json").write_text("{}", encoding="utf-8")
+                (local_root).mkdir(parents=True, exist_ok=True)
+                (local_root / "answer-records.json").write_text("[]", encoding="utf-8")
+                self.assertTrue(transaction.rollback())
+                self.assertTrue(transaction.rollback_data())
+            self.assertFalse((install_dir / "data").exists())
+            self.assertFalse((local_root / "answer-records.json").exists())
+
+    def test_rollback_keeps_preexisting_data_intact(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            install_dir = root / "install"
+            data_dir = install_dir / "data"
+            data_dir.mkdir(parents=True)
+            (data_dir / "questions.json").write_text('{"kept":true}', encoding="utf-8")
+            (install_dir / "app.js").write_text("old", encoding="utf-8")
+            archive_path = self.make_archive(root, {"app.js": b"new"})
+            options = self.make_options(install_dir, archive_path)
+            with patch.dict(os.environ, {"LOCALAPPDATA": str(root / "localappdata")}, clear=False):
+                transaction = update_helper.apply_update(options)
+                (data_dir / "questions.json").write_text('{"migrated":true}', encoding="utf-8")
+                (data_dir / "stray.json").write_text("{}", encoding="utf-8")
+                self.assertTrue(transaction.rollback())
+                self.assertTrue(transaction.rollback_data())
+            self.assertEqual(
+                (data_dir / "questions.json").read_text(encoding="utf-8"), '{"kept":true}'
+            )
+            self.assertFalse((data_dir / "stray.json").exists())
 
     def test_prune_update_backups_keeps_recent_and_bounded_history(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

@@ -30,7 +30,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Lock, Timer
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 
 from update_service import UpdateManager
 from server_config import (
@@ -156,11 +156,56 @@ from server_records import (
     save_pk_result as _save_pk_result,
     save_quiz_result as _save_quiz_result,
 )
+import server_sync
 
 WRITE_LOCK = Lock()
 UPDATE_MANAGER: UpdateManager | None = None
 HTTP_SERVER: ThreadingHTTPServer | None = None
 ALLOW_BROWSER_ADMIN_LOGIN = False
+SYNC_WORKER: server_sync.SyncWorker | None = None
+
+
+class _SyncBankAccess(server_sync.LocalBankAccess):
+    """Local bank read/write for the sync worker (same process, same lock)."""
+
+    def read_bank(self) -> dict[str, Any]:
+        with WRITE_LOCK:
+            return validate_question_bank_v4(read_json(QUESTIONS_PATH))
+
+    def write_bank(self, bank: dict[str, Any]) -> None:
+        result = validate_question_bank_v4(bank)
+        with WRITE_LOCK:
+            backup_and_write(QUESTIONS_PATH, result)
+
+
+def sync_worker() -> server_sync.SyncWorker:
+    global SYNC_WORKER
+    if SYNC_WORKER is None:
+        SYNC_WORKER = server_sync.SyncWorker(_SyncBankAccess())
+    return SYNC_WORKER
+
+
+def apply_sync_availability_block(view: dict[str, Any]) -> dict[str, Any]:
+    """Overlay unresolved sync conflicts as temporarily blocked (§55-56).
+
+    Derived only; never persisted into questions.json.  Priority: invalid
+    first, then sync_conflict, everything else unchanged.
+    """
+    try:
+        blocked = server_sync.blocked_question_ids()
+    except OSError:
+        return view
+    if not blocked:
+        return view
+    for question in view.get("questions", []):
+        if not isinstance(question, dict) or question.get("id") not in blocked:
+            continue
+        availability = question.get("availability")
+        if not isinstance(availability, dict) or availability.get("reason") == "invalid":
+            continue
+        availability["playable"] = False
+        availability["reason"] = "sync_conflict"
+    return view
 
 
 def read_admin_password_hash() -> str:
@@ -624,7 +669,7 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
         if route == "/api/questions":
             try:
                 payload = validate_question_bank_v4(read_json(QUESTIONS_PATH))
-                self.send_json(student_question_bank_view(payload), extra_headers={"ETag": make_json_etag(payload)})
+                self.send_json(apply_sync_availability_block(student_question_bank_view(payload)), extra_headers={"ETag": make_json_etag(payload)})
             except (OSError, json.JSONDecodeError, ValueError) as error:
                 self.send_api_error(f"读取题库失败：{error}", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
@@ -633,7 +678,7 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
                 return
             try:
                 payload = validate_question_bank_v4(read_json(QUESTIONS_PATH))
-                self.send_json(admin_question_bank_view(payload), extra_headers={"ETag": make_json_etag(payload)})
+                self.send_json(apply_sync_availability_block(admin_question_bank_view(payload)), extra_headers={"ETag": make_json_etag(payload)})
             except (OSError, json.JSONDecodeError, ValueError) as error:
                 self.send_api_error(f"读取题库失败：{error}", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
@@ -690,6 +735,46 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
         if route == "/api/admin-settings":
             self.send_api_error("管理员密码管理已迁移到 Windows 启动窗口。", HTTPStatus.FORBIDDEN)
             return
+        if route in {"/api/sync/status", "/api/sync/conflicts", "/api/sync/backups",
+                     "/api/sync/backups/download"}:
+            if not self.require_admin():
+                return
+            try:
+                if route == "/api/sync/status":
+                    self.send_json({"ok": True, "data": server_sync.public_sync_status()})
+                    return
+                if route == "/api/sync/conflicts":
+                    try:
+                        conflicts = server_sync.fetch_conflicts()
+                    except server_sync.SyncError as error:
+                        self.send_api_error(str(error))
+                        return
+                    self.send_json({"ok": True, "data": {"conflicts": conflicts}})
+                    return
+                if route == "/api/sync/backups":
+                    try:
+                        backups = server_sync.list_remote_backups()
+                    except server_sync.SyncError as error:
+                        self.send_api_error(str(error))
+                        return
+                    self.send_json({"ok": True, "data": {"backups": backups}})
+                    return
+                query = dict(parse_qsl(urlparse(self.path).query))
+                try:
+                    filename, content = server_sync.download_backup(query.get("id", ""))
+                except server_sync.SyncError as error:
+                    self.send_api_error(str(error))
+                    return
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(content)))
+                self.send_header("X-Backup-Filename", filename)
+                self.end_headers()
+                self.wfile.write(content)
+                return
+            except (OSError, json.JSONDecodeError) as error:
+                self.send_api_error(f"文件操作失败：{error}", HTTPStatus.INTERNAL_SERVER_ERROR)
+                return
         super().do_GET()
 
     def do_POST(self) -> None:
@@ -720,6 +805,15 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
                 "/api/question-bank-export",
                 "/api/question-bank-history",
                 "/api/question-bank-history/revoke",
+                "/api/sync/configure",
+                "/api/sync/test",
+                "/api/sync/connect",
+                "/api/sync/disconnect",
+                "/api/sync/now",
+                "/api/sync/bootstrap/preview",
+                "/api/sync/bootstrap/confirm",
+                "/api/sync/conflicts/resolve",
+                "/api/sync/backups/upload",
             } and not self.require_admin():
                 return
             if route == "/api/question-bank-import":
@@ -753,6 +847,12 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
                     preview = build_import_preview(current, package, mode=mode)
                     preview["sourceName"] = str(payload.get("sourceName", "题库导入"))[:200]
                     self.send_json({"ok": True, "data": preview})
+                    return
+                if mode == "replace" and server_sync.load_settings().get("enabled"):
+                    self.send_api_error(
+                        "当前已启用共享同步。完整替换会切换题库 lineage，请先断开同步后再替换。",
+                        HTTPStatus.CONFLICT,
+                    )
                     return
                 base_etag = payload.get("baseEtag")
                 if not isinstance(base_etag, str) or not base_etag.strip():
@@ -887,6 +987,99 @@ class QuizRequestHandler(SimpleHTTPRequestHandler):
                     },
                     extra_headers={"ETag": make_json_etag(result_bank)},
                 )
+                return
+            if route == "/api/sync/configure":
+                if not isinstance(payload, dict):
+                    raise ValueError("同步配置请求必须是对象。")
+                try:
+                    result = server_sync.configure_sync(
+                        payload.get("host", ""), payload.get("port", 0),
+                        payload.get("username", ""), payload.get("password", ""),
+                        str(payload.get("deviceName", "")))
+                except server_sync.SyncError as error:
+                    self.send_api_error(str(error))
+                    return
+                self.send_json({"ok": True, "data": result})
+                return
+            if route == "/api/sync/test":
+                if not isinstance(payload, dict):
+                    raise ValueError("同步测试请求必须是对象。")
+                try:
+                    result = server_sync.test_sync_connection(
+                        payload.get("host", ""), payload.get("port", 0),
+                        payload.get("username", ""), payload.get("password", ""))
+                except server_sync.SyncError as error:
+                    self.send_api_error(str(error))
+                    return
+                self.send_json({"ok": True, "data": result})
+                return
+            if route == "/api/sync/connect":
+                try:
+                    result = server_sync.connect_sync(_SyncBankAccess())
+                except server_sync.SyncError as error:
+                    self.send_api_error(str(error))
+                    return
+                self.send_json({"ok": True, "data": result})
+                return
+            if route == "/api/sync/disconnect":
+                clear = bool(payload.get("clearCredential", False)) if isinstance(payload, dict) else False
+                self.send_json({"ok": True, "data": server_sync.disconnect_sync(clear)})
+                return
+            if route == "/api/sync/now":
+                try:
+                    result = sync_worker().cycle_once()
+                except server_sync.SyncError as error:
+                    self.send_api_error(str(error))
+                    return
+                self.send_json({"ok": True, "data": result})
+                return
+            if route == "/api/sync/bootstrap/preview":
+                try:
+                    result = server_sync.preview_first_sync(_SyncBankAccess())
+                except server_sync.SyncError as error:
+                    self.send_api_error(str(error))
+                    return
+                self.send_json({"ok": True, "data": result})
+                return
+            if route == "/api/sync/bootstrap/confirm":
+                if not isinstance(payload, dict):
+                    raise ValueError("首次同步确认请求必须是对象。")
+                action = payload.get("action", "")
+                try:
+                    if action == "server_empty":
+                        result = server_sync.confirm_bootstrap_server_empty(_SyncBankAccess())
+                    elif action == "local_empty":
+                        with WRITE_LOCK:
+                            backup_and_write(QUESTIONS_PATH, read_json(QUESTIONS_PATH))
+                        result = server_sync.confirm_bootstrap_local_empty(_SyncBankAccess())
+                    elif action == "both":
+                        result = server_sync.confirm_first_sync(
+                            _SyncBankAccess(), payload.get("reviewResolutions", {}))
+                    else:
+                        raise ValueError("未知的首次同步确认动作。")
+                except server_sync.SyncError as error:
+                    self.send_api_error(str(error))
+                    return
+                self.send_json({"ok": True, "data": result})
+                return
+            if route == "/api/sync/conflicts/resolve":
+                if not isinstance(payload, dict):
+                    raise ValueError("冲突处理请求必须是对象。")
+                try:
+                    result = server_sync.resolve_conflict(
+                        str(payload.get("conflict_id", "")), str(payload.get("choice", "")))
+                except server_sync.SyncError as error:
+                    self.send_api_error(str(error))
+                    return
+                self.send_json({"ok": True, "data": result})
+                return
+            if route == "/api/sync/backups/upload":
+                try:
+                    result = server_sync.upload_backup(_SyncBankAccess())
+                except server_sync.SyncError as error:
+                    self.send_api_error(str(error))
+                    return
+                self.send_json({"ok": True, "data": result})
                 return
             if route == "/api/quiz-results":
                 if not isinstance(payload, dict):
@@ -1208,6 +1401,10 @@ def main(argv: list[str] | None = None) -> None:
     )
     UPDATE_MANAGER.start_background()
     write_service_pid()
+    try:
+        sync_worker().start()
+    except Exception as error:
+        print(f"同步后台未能启动（不影响本地功能）：{error}")
     try:
         server = ThreadingHTTPServer(("127.0.0.1", args.port), QuizRequestHandler)
     except Exception:

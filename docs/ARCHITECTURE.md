@@ -28,6 +28,7 @@ Windows EXE / BAT / python run_server.py
 - 源码直接运行可以调用 `python tools/run_server.py --port 8000`；根目录 BAT 负责探测 Python、复用本项目健康服务并打开浏览器。
 - Windows 免 Python 包的入口是 PyInstaller 生成的 `文言实词限时训练.exe`。它启动 `launcher.py` 的 Tk 窗口，在后台线程运行 `run_server.main(..., --no-browser)`，再由浏览器打开学生页；“打开管理后台”先在 Tk 原生窗口验证密码，创建内存中的一次性 launch ticket，浏览器用 fragment ticket 换取短寿命 adminToken。
 - 服务只绑定 `127.0.0.1`，不是局域网服务器，也没有远程数据库或云同步。正式服务关闭浏览器密码登录；只有显式传入 `--allow-browser-admin-login` 的源码调试服务才暴露旧的 `/api/admin-auth` 能力。
+- 可选的 classroom 实时同步见 §12：浏览器仍只连 localhost，远程同步只由本机 Python worker 发起；默认关闭时程序行为与过去完全一致。
 - `launcher.py` 通过 `/api/health` 检查 `ok` 和 `app == "wenyan-word-training"`，避免把同端口的其他 HTTP 服务误当成本项目。
 
 ## 2. 浏览器脚本与加载顺序
@@ -64,7 +65,8 @@ Windows EXE / BAT / python run_server.py
 8. `admin-records.js`
 9. `admin-update.js`
 10. `admin-settings.js`
-11. `admin.js`
+11. `admin-sync.js`
+12. `admin.js`
 
 `admin.js` 位于最后，负责初始化后台共享状态、加载数据、渲染 shell 和根据 tab 分发。各 `admin-*.js` 在 global scope 中提供页面渲染和事件绑定函数。
 
@@ -105,8 +107,9 @@ finishGame -> result -> 保存答题记录 + 可选排行榜
 | `admin-questions.js` | 题目列表/编辑/新增/删除、原句选词和出现位置、题库 JSON 模板/说明、导入合并/替换、导入导出历史、撤销导入、目录/教材册/题型维护 |
 | `admin-reviews.js` | 待审/已确认/待修改/跳过和重复候选审查、发布状态同步、审查保存 |
 | `admin-records.js` | 排行榜编辑、答题记录查看、折叠/恢复/批量处理、记录 JSON 导入导出；答题记录不提供删除 |
-| `admin-settings.js` | 题型/教材册/文章设置、计分方式和答题时长设置；管理员密码不属于浏览器后台 |
+| `admin-settings.js` | 题型/教材册/文章设置、同步与备份卡片挂载点、计分方式和答题时长设置；管理员密码不属于浏览器后台 |
 | `admin-update.js` | 更新状态轮询、检查更新、更新确认和状态弹窗 |
+| `admin-sync.js` | 同步与备份卡片、连接配置、首次同步、同步冲突队列、远程备份列表/下载；与导入冲突队列状态分离 |
 | `admin-guide-data.js` | 按当前后台目录和题型生成 JSON 模板与合并后的 Markdown 导入说明 |
 
 后台写操作由服务端再校验，前端的可用性提示不是安全边界。
@@ -124,6 +127,8 @@ finishGame -> result -> 保存答题记录 + 可选排行榜
 | `server_questions.py` | 题库和审查文件路径配置、题库初始化、审查同步、导入历史、合并/替换撤销 |
 | `server_question_import.py` | Schema v4 导入格式识别、目录 ID 映射、questionMap（导入题目 ID → 本机题目 ID）、同题库冲突分类、跨 bank 语义精确匹配、审查自动合并、阻塞式审查冲突集与人工 resolution 校验、重复处理决定合并，以及导入预览/应用共用的唯一合并逻辑 |
 | `server_records.py` | 答题记录和排行榜迁移/读取/留存、solo 结果幂等保存、PK 结果按 matchId 幂等保存 |
+| `server_sync.py` | 本机同步 worker（2 秒轮询、push 先于 pull、退避）、shadow diff、DPAPI 凭据、bootstrap/备份/冲突的本地 API 逻辑、sync_conflict 可用性叠加 |
+| `sync_protocol.py` | 客户端与服务器共享的纯协议：实体模型、确定性 operationId、diff、实体读写、challenge-HMAC 工具 |
 | `update_service.py` | 读取 GitHub stable release、版本/资产/sha256 检查、下载和启动更新助手 |
 | `update_helper.py` | 读取更新 manifest、拒绝数据/题库/路径穿越、备份被替换代码、原子覆盖、失败回滚、重启 |
 | `launcher.py` | Tk 启动窗口、服务启动/接管/健康轮询、学生页打开、原生管理员验证、原生密码修改、浏览器打开和退出时停止服务 |
@@ -137,11 +142,38 @@ run_server -> server_config
            -> server_questions -> server_validators / server_storage
            -> server_question_import -> server_validators
            -> server_records -> server_validators / server_storage
+           -> server_sync -> sync_protocol / server_validators
            -> update_service
 launcher -> run_server
 build_release -> version.json + 显式 runtime allowlist
 update_helper -> update-manifest.json（只处理代码包）
+sync_server/server.py -> sync_server/storage.py + sync_server/auth.py
+                        -> tools/sync_protocol.py + tools/server_validators.py（只读复用，不复制规则）
 ```
+
+## 5.1 实时同步架构（§137）
+
+```text
+questions.json
+     ↑↓ (shadow diff → entity operations)
+sync-shadow.json（最后确认一致的快照）
+     ↑↓ (后台 sync worker, 约 2 秒一轮, push 先于 pull, 失败退避 2/5/10/30s)
+local Python sync worker（浏览器只连 localhost，从不直连远端）
+     ↑↓ (challenge-HMAC 登录 + HMAC 请求/响应签名, 协议版本 1)
+remote sync server（单共享 workspace, SQLite, 串行写锁, revision 单调递增）
+     ↑↓
+SQLite current snapshot + revision log + 持久冲突 + 备份元数据
+
+另一路（与同步完全分开）：
+
+questions.json
+     ↓ (手动上传完整 JSON, 原样保存, 不碰 live revision)
+remote immutable backup file（bk_<hash>.json + 元数据）
+```
+
+- 日常同步只传实体变化（`review_set` 高频），首次初始化与灾难恢复才走完整 snapshot；备份上传不产生 operation、不增加 revision。
+- 冲突解决产生新 revision，各端 pull 到 resolved 事件后解除屏蔽；未解决冲突题目叠加 `availability.reason = sync_conflict`（派生值，不进题库）。
+- 同步服务器是独立部署物（`sync_server/` + 复用的 `tools/sync_protocol.py`、`tools/server_validators.py`），不进客户端 Windows/source 更新包；客户端新增 runtime 模块（`server_sync.py`、`sync_protocol.py`、`admin-sync.js`）由 PyInstaller 打入主 EXE，不在 Windows ZIP 顶层散落。
 
 ## 6. API 和生命周期
 
@@ -221,6 +253,7 @@ RUNTIME_WEB_FILES
   admin-records.js
   admin-update.js
   admin-settings.js
+  admin-sync.js
   pk-finish-effects.css
   pk-finish-effects.js
   style.css
@@ -240,6 +273,8 @@ RUNTIME_PYTHON_FILES
   tools/launcher.py
   tools/update_helper.py
   tools/update_service.py
+  tools/server_sync.py
+  tools/sync_protocol.py
 ```
 
 - `--source-only` 生成源码 ZIP；`--github-only` 生成 Windows 更新包；无模式时两者都生成。

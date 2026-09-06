@@ -294,23 +294,38 @@ def snapshot_update_data(install_dir: Path, backup_root: Path) -> Path | None:
     Covers the whole ``install_dir/data/`` tree plus the LocalAppData files
     a new version may prune, repair or migrate on first launch.  Returns the
     snapshot directory, or None when there was nothing to capture.
+
+    A ``snapshot-manifest.json`` records which paths existed, so rollback
+    can restore exact absence (never leave a newly created file behind).
     """
 
     snapshot_root = backup_root / UPDATE_DATA_SNAPSHOT_DIRNAME
-    captured = False
     data_dir = install_dir / "data"
-    if data_dir.is_dir() and not data_dir.is_symlink():
+    data_dir_existed = data_dir.is_dir() and not data_dir.is_symlink()
+    if data_dir_existed:
         _copy_data_tree(data_dir, snapshot_root / "data")
-        captured = True
     local_root = _user_data_root()
+    protected_existed: dict[str, bool] = {}
     for name in PROTECTED_LOCALAPPDATA_FILES:
         source = local_root / name
-        if source.is_file() and not source.is_symlink():
+        existed = source.is_file() and not source.is_symlink()
+        protected_existed[name] = existed
+        if existed:
             destination = snapshot_root / "local-app-data" / name
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
-            captured = True
-    return snapshot_root if captured else None
+    # Always persist the manifest, even for a fully absent tree: rollback
+    # must be able to restore exact absence.  A manifest write failure
+    # raises so the update aborts instead of risking unrestorable migration.
+    snapshot_root.mkdir(parents=True, exist_ok=True)
+    (snapshot_root / "snapshot-manifest.json").write_text(
+        json.dumps({
+            "data_dir_existed": data_dir_existed,
+            "protected_local_files_existed": protected_existed,
+        }, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return snapshot_root
 
 
 def preserve_failed_data_state(install_dir: Path, backup_root: Path) -> None:
@@ -324,30 +339,92 @@ def preserve_failed_data_state(install_dir: Path, backup_root: Path) -> None:
         pass
 
 
+def _read_snapshot_manifest(snapshot_root: Path) -> dict:
+    try:
+        payload = json.loads((snapshot_root / "snapshot-manifest.json").read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _remove_path_noraise(path: Path) -> bool:
+    try:
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+        elif path.is_dir():
+            shutil.rmtree(path)
+        return True
+    except OSError:
+        return False
+
+
 def restore_update_data(snapshot_root: Path, install_dir: Path) -> bool:
-    """Restore a pre-update snapshot; True only when everything succeeded."""
+    """Restore a pre-update snapshot; True only when everything succeeded.
+
+    Paths recorded as absent in the snapshot manifest are deleted, so files
+    or directories created by the failed new version do not survive.
+    """
 
     ok = True
+    manifest = _read_snapshot_manifest(snapshot_root)
+    has_manifest = bool(manifest)
     data_snapshot = snapshot_root / "data"
-    if data_snapshot.is_dir():
-        target = install_dir / "data"
-        try:
-            if target.is_symlink() or target.is_file():
-                target.unlink()
-            elif target.is_dir():
-                shutil.rmtree(target)
-            _copy_data_tree(data_snapshot, target)
-        except OSError:
+    target = install_dir / "data"
+    if not has_manifest:
+        # Snapshots predating snapshot-manifest.json: restore whatever was
+        # captured, but never delete live paths we know nothing about.
+        if data_snapshot.is_dir():
+            try:
+                if target.is_symlink() or target.is_file():
+                    target.unlink()
+                elif target.is_dir():
+                    shutil.rmtree(target)
+                _copy_data_tree(data_snapshot, target)
+            except OSError:
+                ok = False
+        local_snapshot = snapshot_root / "local-app-data"
+        if local_snapshot.is_dir():
+            for name in PROTECTED_LOCALAPPDATA_FILES:
+                source = local_snapshot / name
+                if source.is_file():
+                    try:
+                        shutil.copy2(source, _user_data_root() / name)
+                    except OSError:
+                        ok = False
+        return ok
+    if manifest.get("data_dir_existed"):
+        if data_snapshot.is_dir():
+            try:
+                if target.is_symlink() or target.is_file():
+                    target.unlink()
+                elif target.is_dir():
+                    shutil.rmtree(target)
+                _copy_data_tree(data_snapshot, target)
+            except OSError:
+                ok = False
+        else:
             ok = False
+    else:
+        if target.is_symlink() or target.is_file() or target.is_dir():
+            ok = _remove_path_noraise(target) and ok
     local_snapshot = snapshot_root / "local-app-data"
-    if local_snapshot.is_dir():
-        for name in PROTECTED_LOCALAPPDATA_FILES:
+    existed_map = manifest.get("protected_local_files_existed", {})
+    if not isinstance(existed_map, dict):
+        existed_map = {}
+    for name in PROTECTED_LOCALAPPDATA_FILES:
+        live = _user_data_root() / name
+        if existed_map.get(name):
             source = local_snapshot / name
             if source.is_file():
                 try:
-                    shutil.copy2(source, _user_data_root() / name)
+                    shutil.copy2(source, live)
                 except OSError:
                     ok = False
+            else:
+                ok = False
+        else:
+            if live.is_symlink() or live.is_file():
+                ok = _remove_path_noraise(live) and ok
     return ok
 
 
@@ -667,7 +744,10 @@ def run_update_transaction(options: argparse.Namespace) -> bool:
 
         restart_ok = False
         old_process: subprocess.Popen | None = None
-        if rollback_ok:
+        # Only a fully rolled-back tree (code AND data) may be restarted:
+        # booting the old build on a half-restored data directory would risk
+        # further migration damage.  Surface the backup path instead.
+        if rolled_back:
             try:
                 log_update_event(version, "restart-rollback", "启动回滚后的旧版本。")
                 old_process = start_version(options)
@@ -683,18 +763,18 @@ def run_update_transaction(options: argparse.Namespace) -> bool:
                 log_update_event(version, "restart-rollback-failed", f"{type(restart_error).__name__}: {restart_error}")
                 stop_started_process(old_process)
 
-        if rollback_ok and previous_version:
+        if rolled_back and previous_version:
             message = f"更新 v{version} 失败，已恢复到 v{previous_version}。"
-        elif rollback_ok:
+        elif rolled_back:
             message = f"更新 v{version} 失败，已完成程序文件回滚。"
         else:
             message = f"更新 v{version} 失败，回滚未能完全确认。"
-        if rollback_ok and not data_ok:
+        if not data_ok:
             message = (
-                f"程序更新失败，数据自动恢复未完全成功，请不要继续操作，"
-                f"并从备份恢复（{data_snapshot_dir}）。"
+                "数据恢复未完全成功，请不要继续操作，并从备份恢复"
+                f"（{data_snapshot_dir}）。"
             )
-        if rollback_ok and not restart_ok:
+        if rolled_back and not restart_ok:
             message += "旧版本自动启动未能确认，请手动启动程序。"
         write_result(
             options.install_dir,
